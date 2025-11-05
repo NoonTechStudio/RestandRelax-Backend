@@ -1,4 +1,4 @@
-const mongoose = require("mongoose");
+import mongoose from "mongoose";
 
 const ReviewSchema = new mongoose.Schema({
   location: {
@@ -48,4 +48,4 @@ const ReviewSchema = new mongoose.Schema({
 ReviewSchema.index({ location: 1, createdAt: -1 });
 ReviewSchema.index({ rating: -1 });
 
-module.exports = mongoose.model("Review", ReviewSchema);
+export default mongoose.model("Review", ReviewSchema);

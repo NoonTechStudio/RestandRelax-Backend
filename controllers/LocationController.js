@@ -50,3 +50,30 @@ export const getLocationById = async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 };
+
+export const deleteLocation = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const location = await Location.findByIdAndDelete(id);
+
+    if (!location) {
+      return res.status(404).json({
+        success: false,
+        error: "Location not found",
+      });
+    }
+
+    res.json({
+      success: true,
+      message: "Location deleted successfully",
+      location, // Optional: return deleted location details
+    });
+  } catch (err) {
+    console.error("Delete location error:", err);
+    res.status(500).json({
+      success: false,
+      error: err.message,
+    });
+  }
+};

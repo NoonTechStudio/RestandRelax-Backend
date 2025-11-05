@@ -1,13 +1,13 @@
-const express = require("express");
+import express from "express"; 
 const router = express.Router();
-const {
+import {
   createReview,
   getReviews,
   getReviewById,
   getReviewsByLocation,
   updateReview,
   deleteReview
-} = require("../controllers/reviewController");
+} from "../controllers/reviewController.js";
 
 // Create a new review
 router.post("/", createReview);
@@ -27,4 +27,4 @@ router.put("/:id", updateReview);
 // Delete a review
 router.delete("/:id", deleteReview);
 
-module.exports = router;
+export default router;

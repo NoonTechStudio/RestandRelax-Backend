@@ -1,16 +1,29 @@
-const mongoose = require('mongoose');
+import mongoose from 'mongoose';
 
 const connectDB = async () => {
   try {
-    await mongoose.connect(process.env.MONGO_URI, {
+    const conn = await mongoose.connect(process.env.MONGO_URI, {
       useNewUrlParser: true,
-      useUnifiedTopology: true
+      useUnifiedTopology: true,
     });
-    console.log('MongoDB connected');
+    
+    console.log(`MongoDB Connected: ${conn.connection.host}`);
   } catch (err) {
     console.error('MongoDB connection failed:', err.message);
-    process.exit(1);
+    
+    // For Vercel, don't use process.exit(1) as it can cause issues
+    // Instead, throw the error
+    throw err;
   }
 };
 
-module.exports = connectDB;
+// Handle graceful shutdown for Vercel
+mongoose.connection.on('disconnected', () => {
+  console.log('MongoDB disconnected');
+});
+
+mongoose.connection.on('error', (err) => {
+  console.error('MongoDB connection error:', err);
+});
+
+export default connectDB;

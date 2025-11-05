@@ -1,11 +1,14 @@
-const mongoose = require("mongoose");
+import mongoose from "mongoose";
 
 const ImageSchema = new mongoose.Schema({
   url: { type: String, required: true },
+  cloudinaryId: { type: String }, // Store Cloudinary public_id
   alt: { type: String },
-  title: { type: String, required: true }, // Only title added
-  isMainImage: { type: Boolean, default: false }, // Main image checkbox
-  order: { type: Number, default: 0 }
+  title: { type: String, required: true },
+  isMainImage: { type: Boolean, default: false },
+  order: { type: Number, default: 0 },
+  format: { type: String, default: 'webp' }, // Store image format
+  fileSize: { type: Number } // Store file size
 });
 
 const LocationImageSchema = new mongoose.Schema({
@@ -18,4 +21,4 @@ const LocationImageSchema = new mongoose.Schema({
   createdAt: { type: Date, default: Date.now },
 });
 
-module.exports = mongoose.model("LocationImage", LocationImageSchema);
+export default mongoose.model("LocationImage", LocationImageSchema);

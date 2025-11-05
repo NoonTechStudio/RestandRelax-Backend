@@ -1,5 +1,5 @@
 // models/Location.js
-const mongoose = require("mongoose");
+import mongoose from "mongoose";
 
 const LocationSchema = new mongoose.Schema({
   name: { type: String, required: true },
@@ -10,8 +10,10 @@ const LocationSchema = new mongoose.Schema({
     state: { type: String, required: true },
     pincode: { type: String, required: true },
   },
-  latitude: { type: Number }, 
-  longitude: { type: Number },
+  coordinates: {  // Change this to nested object
+    lat: { type: Number },
+    lng: { type: Number }
+  },
   description: { type: String },
   capacityOfPersons: { type: Number, required: true }, // total capacity of the property (bedrooms + private villas)
   propertyDetails: {
@@ -38,4 +40,4 @@ const LocationSchema = new mongoose.Schema({
   createdAt: { type: Date, default: Date.now },
 });
 
-module.exports = mongoose.model("Location", LocationSchema);
+export default mongoose.model("Location", LocationSchema);

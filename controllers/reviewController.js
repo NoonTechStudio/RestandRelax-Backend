@@ -1,8 +1,8 @@
-const Review = require("../models/Review");
-const Location = require("../models/Location");
+import Review from "../models/Review.js";
+import Location from "../models/Location.js";
 
 // Create a new review
-const createReview = async (req, res) => {
+export const createReview = async (req, res) => {
   try {
     const {
       location,
@@ -79,7 +79,7 @@ const createReview = async (req, res) => {
 };
 
 // Get all reviews with optional filtering
-const getReviews = async (req, res) => {
+export const getReviews = async (req, res) => {
   try {
     const { 
       location, 
@@ -183,7 +183,7 @@ const getReviews = async (req, res) => {
 };
 
 // Get review by ID
-const getReviewById = async (req, res) => {
+export const getReviewById = async (req, res) => {
   try {
     const { id } = req.params;
 
@@ -207,8 +207,7 @@ const getReviewById = async (req, res) => {
 };
 
 // Get reviews by location ID
-// Get reviews by location ID
-const getReviewsByLocation = async (req, res) => {
+export const getReviewsByLocation = async (req, res) => {
   try {
     const { locationId } = req.params;
     const { 
@@ -290,7 +289,7 @@ const getReviewsByLocation = async (req, res) => {
 };
 
 // Update a review
-const updateReview = async (req, res) => {
+export const updateReview = async (req, res) => {
   try {
     const { id } = req.params;
     const updates = req.body;
@@ -353,7 +352,7 @@ const updateReview = async (req, res) => {
 };
 
 // Delete a review
-const deleteReview = async (req, res) => {
+export const deleteReview = async (req, res) => {
   try {
     const { id } = req.params;
 
@@ -376,11 +375,3 @@ const deleteReview = async (req, res) => {
   }
 };
 
-module.exports = {
-  createReview,
-  getReviews,
-  getReviewById,
-  getReviewsByLocation,
-  updateReview,
-  deleteReview
-};

@@ -1,4 +1,4 @@
-const mongoose = require("mongoose");
+import mongoose from "mongoose";
 
 const BookingSchema = new mongoose.Schema({
   location: { type: mongoose.Schema.Types.ObjectId, ref: "Location", required: true },
@@ -44,8 +44,10 @@ const BookingSchema = new mongoose.Schema({
     //villaPrice: { type: Number, default: 0 },
     extraPersonCharge: { type: Number, default: 0 },
     totalPrice: { type: Number, required: true }
-
   },
+  paymentType: { type: String, enum: ["full", "token"], default: "full" },
+  amountPaid: { type: Number, default: 0 },
+  remainingAmount: { type: Number, default: 0 },
 
   // Payment Fields
   paymentStatus: { type: String, enum: ["pending", "paid", "failed"], default: "pending" },
@@ -59,4 +61,5 @@ const BookingSchema = new mongoose.Schema({
 // UPDATED index for check-in date instead of single date
 BookingSchema.index({ location: 1, checkInDate: 1 });
 
-module.exports = mongoose.model("Booking", BookingSchema);
+
+export default mongoose.model("Booking", BookingSchema);
