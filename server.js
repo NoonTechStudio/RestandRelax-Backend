@@ -47,7 +47,8 @@ if (process.env.VERCEL_ENV !== 'production') {
 const allowedOrigins = isProduction 
   ? [
       process.env.FRONTEND_URL,
-      "https://your-frontend-app.vercel.app" // Replace with your actual frontend URL
+      "https://frontend-hl8pj3oyz-noontechstudios-projects.vercel.app",
+      "https://restand-relax-admin-frontend-ls2pgoc5s-noontechstudios-projects.vercel.app"
     ].filter(Boolean)
   : [
       "http://localhost:5173",
