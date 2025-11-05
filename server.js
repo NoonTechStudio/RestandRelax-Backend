@@ -47,6 +47,7 @@ if (process.env.VERCEL_ENV !== 'production') {
 const allowedOrigins = isProduction 
   ? [
       process.env.FRONTEND_URL,
+      process.env.ADMIN_FRONTEND_URL,
       "https://frontend-hl8pj3oyz-noontechstudios-projects.vercel.app",
       "https://restand-relax-admin-frontend-ls2pgoc5s-noontechstudios-projects.vercel.app"
     ].filter(Boolean)
@@ -56,7 +57,10 @@ const allowedOrigins = isProduction
       "http://localhost:5174",
       "http://127.0.0.1:5174",
       process.env.FRONTEND_URL,
+      process.env.ADMIN_FRONTEND_URL,
     ].filter(Boolean);
+
+console.log('🛡️ CORS allowed origins:', allowedOrigins);
 
 app.use(
   cors({
