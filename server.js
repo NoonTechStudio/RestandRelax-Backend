@@ -51,7 +51,6 @@ if (process.env.VERCEL_ENV !== 'production') {
 const allowedOrigins = isProduction 
   ? [
       process.env.FRONTEND_URL,
-      process.env.ADMIN_FRONTEND_URL,
       "https://frontend-lilac-seven-36.vercel.app",
       "https://restand-relax-admin-frontend.vercel.app"
     ].filter(Boolean)
@@ -61,7 +60,6 @@ const allowedOrigins = isProduction
       "http://localhost:5174",
       "http://127.0.0.1:5174",
       process.env.FRONTEND_URL,
-      process.env.ADMIN_FRONTEND_URL,
     ].filter(Boolean);
 
 // Log CORS config for debugging
