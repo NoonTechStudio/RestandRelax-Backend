@@ -48,6 +48,8 @@ const allowedOrigins = isProduction
   ? [
       process.env.FRONTEND_URL,
       process.env.ADMIN_FRONTEND_URL,
+      "https://frontend-lilac-seven-36.vercel.app",
+      "https://restand-relax-admin-frontend.vercel.app"
       // Add your production domain when you get one
       // "https://yourapp.vercel.app",
     ].filter(Boolean)
