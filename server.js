@@ -130,12 +130,12 @@ app.options('*', cors());
 
 // Body parsing with consistent limits
 app.use(express.json({ 
-  limit: '50mb'
+  limit: '10mb'  // Reduced from 50mb to prevent timeouts
 }));
 
 app.use(express.urlencoded({ 
   extended: true, 
-  limit: '50mb' 
+  limit: '10mb'  // Reduced from 50mb
 }));
 
 // Request logging middleware
@@ -144,32 +144,48 @@ app.use((req, res, next) => {
   next();
 });
 
-// Initialize database connection with caching for serverless
-let isConnected = false;
+// OPTIMIZED Database connection for Vercel serverless
+let cachedDb = null;
 
 const initializeDatabase = async () => {
-  if (isConnected && mongoose.connection.readyState === 1) {
-    console.log('✅ Using existing database connection');
-    return;
+  // If already connected, reuse the connection
+  if (cachedDb && mongoose.connection.readyState === 1) {
+    console.log('✅ Using cached database connection');
+    return cachedDb;
   }
 
   try {
-    await connectDB();
-    isConnected = true;
-    console.log('✅ Database connected');
+    // Configure mongoose for serverless
+    mongoose.set('strictQuery', false);
+    mongoose.set('bufferCommands', false);
+    
+    // Connect with optimized settings for Vercel
+    const conn = await mongoose.connect(process.env.MONGO_URI, {
+      serverSelectionTimeoutMS: 5000, // Timeout after 5s instead of 30s
+      socketTimeoutMS: 10000,
+      maxPoolSize: 1, // Limit connection pool for serverless
+      minPoolSize: 0,
+      maxIdleTimeMS: 10000,
+      family: 4 // Use IPv4
+    });
+    
+    cachedDb = conn;
+    console.log('✅ New database connection established');
+    return cachedDb;
   } catch (error) {
     console.error('❌ Database connection failed:', error.message);
-    isConnected = false;
+    cachedDb = null;
     throw error;
   }
 };
 
-// Middleware to ensure DB connection before handling requests
+// Middleware to ensure DB connection - NON-BLOCKING
 app.use(async (req, res, next) => {
   try {
     await initializeDatabase();
     next();
   } catch (error) {
+    console.error('Database middleware error:', error);
     res.status(503).json({
       success: false,
       error: 'Database connection failed',
@@ -189,16 +205,31 @@ app.use("/api/admin", adminRoutes);
 app.use("/api/dashboard", dashboardRoutes);
 
 // ===== HEALTH CHECK =====
-app.get('/api/health', (req, res) => {
-  res.json({
-    success: true,
-    message: 'Server is running on Vercel',
-    environment: process.env.NODE_ENV || 'production',
-    timestamp: new Date().toISOString(),
-    platform: 'Vercel Serverless',
-    database: mongoose.connection.readyState === 1 ? 'connected' : 'disconnected',
-    allowedOrigins: allowedOrigins
-  });
+app.get('/api/health', async (req, res) => {
+  try {
+    const dbStatus = mongoose.connection.readyState;
+    const statusMap = {
+      0: 'disconnected',
+      1: 'connected',
+      2: 'connecting',
+      3: 'disconnecting'
+    };
+
+    res.json({
+      success: true,
+      message: 'Server is running on Vercel',
+      environment: process.env.NODE_ENV || 'production',
+      timestamp: new Date().toISOString(),
+      platform: 'Vercel Serverless',
+      database: statusMap[dbStatus] || 'unknown',
+      allowedOrigins: allowedOrigins
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
 });
 
 // ===== ROOT ENDPOINT =====
@@ -266,7 +297,7 @@ app.use((error, req, res, next) => {
   res.status(error.status || 500).json(errorResponse);
 });
 
-// Initialize Razorpay config
+// Initialize Razorpay config (non-blocking)
 try {
   validateRazorpayConfig();
   console.log('✅ Razorpay config validated');
