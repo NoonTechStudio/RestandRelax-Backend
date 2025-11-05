@@ -24,7 +24,11 @@ import {
 } from './middleware/security.js';
 
 // Initialize environment variables
-validateEnvironment();
+try {
+  validateEnvironment();
+} catch (error) {
+  console.error('Environment validation failed:', error.message);
+}
 
 // Environment configuration
 const isProduction = process.env.NODE_ENV === 'production';
@@ -50,8 +54,6 @@ const allowedOrigins = isProduction
       process.env.ADMIN_FRONTEND_URL,
       "https://frontend-lilac-seven-36.vercel.app",
       "https://restand-relax-admin-frontend.vercel.app"
-      // Add your production domain when you get one
-      // "https://yourapp.vercel.app",
     ].filter(Boolean)
   : [
       "http://localhost:5173",
@@ -69,7 +71,7 @@ console.log('🛡️ CORS Configuration:', {
   isProduction
 });
 
-// SINGLE CORS CONFIGURATION - Remove all other app.use(cors()) calls
+// SINGLE CORS CONFIGURATION
 app.use(
   cors({
     origin: function (origin, callback) {
@@ -136,10 +138,44 @@ app.use(express.urlencoded({
   limit: '50mb' 
 }));
 
-// Request logging middleware (always enabled for Vercel)
+// Request logging middleware
 app.use((req, res, next) => {
   console.log(`${new Date().toISOString()} - ${req.method} ${req.path}`);
   next();
+});
+
+// Initialize database connection with caching for serverless
+let isConnected = false;
+
+const initializeDatabase = async () => {
+  if (isConnected && mongoose.connection.readyState === 1) {
+    console.log('✅ Using existing database connection');
+    return;
+  }
+
+  try {
+    await connectDB();
+    isConnected = true;
+    console.log('✅ Database connected');
+  } catch (error) {
+    console.error('❌ Database connection failed:', error.message);
+    isConnected = false;
+    throw error;
+  }
+};
+
+// Middleware to ensure DB connection before handling requests
+app.use(async (req, res, next) => {
+  try {
+    await initializeDatabase();
+    next();
+  } catch (error) {
+    res.status(503).json({
+      success: false,
+      error: 'Database connection failed',
+      message: isProduction ? 'Service temporarily unavailable' : error.message
+    });
+  }
 });
 
 // ===== ROUTES =====
@@ -160,6 +196,7 @@ app.get('/api/health', (req, res) => {
     environment: process.env.NODE_ENV || 'production',
     timestamp: new Date().toISOString(),
     platform: 'Vercel Serverless',
+    database: mongoose.connection.readyState === 1 ? 'connected' : 'disconnected',
     allowedOrigins: allowedOrigins
   });
 });
@@ -229,30 +266,25 @@ app.use((error, req, res, next) => {
   res.status(error.status || 500).json(errorResponse);
 });
 
-// Initialize database connection (for serverless compatibility)
-const initializeApp = async () => {
-  try {
-    await connectDB();
-    validateRazorpayConfig();
-    console.log('✅ Database and services initialized');
-  } catch (error) {
-    console.error('❌ Failed to initialize app:', error);
-    // Don't exit process in serverless environment
-  }
-};
+// Initialize Razorpay config
+try {
+  validateRazorpayConfig();
+  console.log('✅ Razorpay config validated');
+} catch (error) {
+  console.error('⚠️ Razorpay config validation failed:', error.message);
+}
 
-// Initialize the app (but don't start listening on Vercel)
+// For local development only
 if (process.env.VERCEL !== '1') {
-  // Local development - start server normally
   const startServer = async () => {
     try {
-      await initializeApp();
+      await initializeDatabase();
       const PORT = process.env.PORT || 5001;
       
       const server = app.listen(PORT, () => {
         console.log(`✅ Server running on port ${PORT}`);
         console.log(`🌍 Environment: ${process.env.NODE_ENV || 'development'}`);
-        console.log(`🛡️  CORS allowed origins: ${allowedOrigins.join(', ')}`);
+        console.log(`🛡️ CORS allowed origins: ${allowedOrigins.join(', ')}`);
       });
 
       // Graceful shutdown for local development
@@ -288,9 +320,6 @@ if (process.env.VERCEL !== '1') {
   };
 
   startServer();
-} else {
-  // Vercel environment - just initialize services
-  initializeApp();
 }
 
 export default app;

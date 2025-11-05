@@ -1,29 +1,42 @@
 import mongoose from 'mongoose';
 
+// Configure mongoose for serverless
+mongoose.set('bufferCommands', false);
+mongoose.set('bufferTimeoutMS', 30000);
+
 const connectDB = async () => {
   try {
-    const conn = await mongoose.connect(process.env.MONGO_URI, {
-      useNewUrlParser: true,
-      useUnifiedTopology: true,
+    // Check if already connected
+    if (mongoose.connection.readyState >= 1) {
+      console.log('MongoDB already connected');
+      return;
+    }
+
+    const options = {
+      maxPoolSize: 10,
+      minPoolSize: 2,
+      socketTimeoutMS: 45000,
+      serverSelectionTimeoutMS: 10000,
+      family: 4, // Use IPv4
+    };
+
+    const conn = await mongoose.connect(process.env.MONGO_URI, options);
+
+    console.log(`✅ MongoDB Connected: ${conn.connection.host}`);
+    
+    // Handle connection events
+    mongoose.connection.on('error', (err) => {
+      console.error('MongoDB connection error:', err);
     });
-    
-    console.log(`MongoDB Connected: ${conn.connection.host}`);
-  } catch (err) {
-    console.error('MongoDB connection failed:', err.message);
-    
-    // For Vercel, don't use process.exit(1) as it can cause issues
-    // Instead, throw the error
-    throw err;
+
+    mongoose.connection.on('disconnected', () => {
+      console.warn('⚠️ MongoDB disconnected');
+    });
+
+  } catch (error) {
+    console.error(`❌ MongoDB Connection Error: ${error.message}`);
+    throw error;
   }
 };
-
-// Handle graceful shutdown for Vercel
-mongoose.connection.on('disconnected', () => {
-  console.log('MongoDB disconnected');
-});
-
-mongoose.connection.on('error', (err) => {
-  console.error('MongoDB connection error:', err);
-});
 
 export default connectDB;
