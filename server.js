@@ -43,16 +43,13 @@ if (process.env.VERCEL_ENV !== 'production') {
   app.use(apiLimiter);
 }
 
-// CORS configuration - Environment specific
 // CORS configuration - Environment specific with Vercel deployment support
 const allowedOrigins = isProduction 
   ? [
       process.env.FRONTEND_URL,
       process.env.ADMIN_FRONTEND_URL,
-      // Hardcoded backup URLs
-      "https://frontend-hl8pj3oyz-noontechstudios-projects.vercel.app",
-      "https://restand-relax-admin-frontend-ls2pgoc5s-noontechstudios-projects.vercel.app",
-      // Add pattern matching for Vercel preview deployments
+      // Add your production domain when you get one
+      // "https://yourapp.vercel.app",
     ].filter(Boolean)
   : [
       "http://localhost:5173",
@@ -70,10 +67,11 @@ console.log('🛡️ CORS Configuration:', {
   isProduction
 });
 
+// SINGLE CORS CONFIGURATION - Remove all other app.use(cors()) calls
 app.use(
   cors({
     origin: function (origin, callback) {
-      console.log('📍 Incoming request from origin:', origin);
+      console.log('🔍 Incoming request from origin:', origin);
       
       // Allow requests with no origin (mobile apps, Postman, curl, serverless functions)
       if (!origin) {
@@ -87,17 +85,17 @@ app.use(
         return callback(null, true);
       }
       
-      // Allow all Vercel deployments (preview and production) for your projects
-      // This is useful for preview deployments
+      // Allow all Vercel preview deployments for your project
       if (isProduction) {
         const vercelPatterns = [
           /^https:\/\/.*-noontechstudios-projects\.vercel\.app$/,
-          /^https:\/\/.*\.vercel\.app$/
+          /^https:\/\/restand-relax-.*\.vercel\.app$/,
+          /^https:\/\/frontend-.*\.vercel\.app$/,
         ];
         
         const isVercelDomain = vercelPatterns.some(pattern => pattern.test(origin));
         if (isVercelDomain) {
-          console.log('✅ Vercel domain allowed:', origin);
+          console.log('✅ Vercel preview domain allowed:', origin);
           return callback(null, true);
         }
       }
@@ -125,55 +123,6 @@ app.use(
 
 // OPTIONS request handler (CORS preflight)
 app.options('*', cors());
-
-app.use(
-  cors({
-    origin: function (origin, callback) {
-      console.log('📍 Request from origin:', origin); // Debug log
-      
-      // Allow requests with no origin (mobile apps, curl, Postman, etc.)
-      if (!origin) {
-        return callback(null, true);
-      }
-      
-      if (allowedOrigins.includes(origin)) {
-        callback(null, true);
-      } else {
-        console.warn(`🚫 CORS blocked request from origin: ${origin}`);
-        callback(new Error("Not allowed by CORS"));
-      }
-    },
-    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
-    credentials: true,
-    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
-    maxAge: isProduction ? 86400 : 0
-  })
-);
-
-console.log('🛡️ CORS allowed origins:', allowedOrigins);
-
-app.use(
-  cors({
-    origin: function (origin, callback) {
-      // Allow requests with no origin (serverless functions, etc.)
-      if (!origin) {
-        return callback(null, true);
-      }
-      
-      if (allowedOrigins.includes(origin)) {
-        callback(null, true);
-      } else {
-        if (isProduction) {
-          console.warn(`🚫 CORS blocked request from origin: ${origin}`);
-        }
-        callback(new Error("Not allowed by CORS"));
-      }
-    },
-    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS","PATCH"],
-    credentials: true,
-    maxAge: isProduction ? 86400 : 0
-  })
-);
 
 // Body parsing with consistent limits
 app.use(express.json({ 
@@ -208,7 +157,8 @@ app.get('/api/health', (req, res) => {
     message: 'Server is running on Vercel',
     environment: process.env.NODE_ENV || 'production',
     timestamp: new Date().toISOString(),
-    platform: 'Vercel Serverless'
+    platform: 'Vercel Serverless',
+    allowedOrigins: allowedOrigins
   });
 });
 
@@ -241,7 +191,8 @@ app.use((error, req, res, next) => {
   if (error.message === 'Not allowed by CORS') {
     return res.status(403).json({
       success: false,
-      error: 'CORS policy: Origin not allowed'
+      error: 'CORS policy: Origin not allowed',
+      origin: req.headers.origin
     });
   }
   
