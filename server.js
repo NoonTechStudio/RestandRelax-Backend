@@ -44,12 +44,15 @@ if (process.env.VERCEL_ENV !== 'production') {
 }
 
 // CORS configuration - Environment specific
+// CORS configuration - Environment specific with Vercel deployment support
 const allowedOrigins = isProduction 
   ? [
       process.env.FRONTEND_URL,
       process.env.ADMIN_FRONTEND_URL,
+      // Hardcoded backup URLs
       "https://frontend-hl8pj3oyz-noontechstudios-projects.vercel.app",
-      "https://restand-relax-admin-frontend-ls2pgoc5s-noontechstudios-projects.vercel.app"
+      "https://restand-relax-admin-frontend-ls2pgoc5s-noontechstudios-projects.vercel.app",
+      // Add pattern matching for Vercel preview deployments
     ].filter(Boolean)
   : [
       "http://localhost:5173",
@@ -59,6 +62,93 @@ const allowedOrigins = isProduction
       process.env.FRONTEND_URL,
       process.env.ADMIN_FRONTEND_URL,
     ].filter(Boolean);
+
+// Log CORS config for debugging
+console.log('🛡️ CORS Configuration:', {
+  environment: process.env.NODE_ENV || 'development',
+  allowedOrigins: allowedOrigins,
+  isProduction
+});
+
+app.use(
+  cors({
+    origin: function (origin, callback) {
+      console.log('📍 Incoming request from origin:', origin);
+      
+      // Allow requests with no origin (mobile apps, Postman, curl, serverless functions)
+      if (!origin) {
+        console.log('✅ Allowing request with no origin');
+        return callback(null, true);
+      }
+      
+      // Check if origin is in allowed list
+      if (allowedOrigins.includes(origin)) {
+        console.log('✅ Origin allowed:', origin);
+        return callback(null, true);
+      }
+      
+      // Allow all Vercel deployments (preview and production) for your projects
+      // This is useful for preview deployments
+      if (isProduction) {
+        const vercelPatterns = [
+          /^https:\/\/.*-noontechstudios-projects\.vercel\.app$/,
+          /^https:\/\/.*\.vercel\.app$/
+        ];
+        
+        const isVercelDomain = vercelPatterns.some(pattern => pattern.test(origin));
+        if (isVercelDomain) {
+          console.log('✅ Vercel domain allowed:', origin);
+          return callback(null, true);
+        }
+      }
+      
+      // Block all other origins
+      console.warn('🚫 CORS blocked request from origin:', origin);
+      console.warn('Allowed origins:', allowedOrigins);
+      callback(new Error("Not allowed by CORS"));
+    },
+    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
+    credentials: true,
+    allowedHeaders: [
+      'Content-Type', 
+      'Authorization', 
+      'X-Requested-With',
+      'Accept',
+      'Origin'
+    ],
+    exposedHeaders: ['Content-Range', 'X-Content-Range'],
+    maxAge: isProduction ? 86400 : 0,
+    preflightContinue: false,
+    optionsSuccessStatus: 204
+  })
+);
+
+// OPTIONS request handler (CORS preflight)
+app.options('*', cors());
+
+app.use(
+  cors({
+    origin: function (origin, callback) {
+      console.log('📍 Request from origin:', origin); // Debug log
+      
+      // Allow requests with no origin (mobile apps, curl, Postman, etc.)
+      if (!origin) {
+        return callback(null, true);
+      }
+      
+      if (allowedOrigins.includes(origin)) {
+        callback(null, true);
+      } else {
+        console.warn(`🚫 CORS blocked request from origin: ${origin}`);
+        callback(new Error("Not allowed by CORS"));
+      }
+    },
+    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
+    credentials: true,
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+    maxAge: isProduction ? 86400 : 0
+  })
+);
 
 console.log('🛡️ CORS allowed origins:', allowedOrigins);
 
