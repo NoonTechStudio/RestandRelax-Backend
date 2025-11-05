@@ -1,4 +1,3 @@
-// config/envValidation.js
 const validateEnvironment = () => {
   const requiredEnvVars = [
     'MONGO_URI',
@@ -16,7 +15,8 @@ const validateEnvironment = () => {
   
   if (missing.length > 0) {
     console.error('❌ Missing environment variables:', missing);
-    process.exit(1);
+    // ❌ Don't use process.exit in Vercel
+    throw new Error(`Missing environment variables: ${missing.join(', ')}`);
   }
 
   console.log('✅ All environment variables validated');
