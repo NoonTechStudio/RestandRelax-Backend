@@ -50,8 +50,6 @@ const deleteFromCloudinary = async (publicId) => {
 };
 
 // ✅ Upload homepage hero images (Updated to use WebP conversion)
-
-
 export const uploadHomepageHero = async (req, res) => {
   try {
     console.log('📸 Upload request received');
@@ -123,6 +121,32 @@ export const uploadHomepageHero = async (req, res) => {
     res.status(500).json({
       success: false,
       error: error.message || "Failed to upload homepage hero images",
+    });
+  }
+};
+
+// ✅ Get active homepage hero (MISSING FUNCTION - ADDED)
+export const getActiveHomepageHero = async (req, res) => {
+  try {
+    const activeHero = await HomepageHero.findOne({ isActive: true })
+      .sort({ createdAt: -1 });
+    
+    if (!activeHero) {
+      return res.status(404).json({
+        success: false,
+        error: "No active homepage hero found"
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      data: activeHero
+    });
+  } catch (error) {
+    console.error("Get active homepage hero error:", error);
+    res.status(500).json({
+      success: false,
+      error: error.message || "Failed to fetch active homepage hero"
     });
   }
 };
