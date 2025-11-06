@@ -186,6 +186,22 @@ app.use(async (req, res, next) => {
   }
 });
 
+// Added changes
+// Handle preflight requests explicitly - ADD THIS
+app.options('*', cors());
+
+// Add explicit CORS headers for all responses - ADD THIS
+app.use((req, res, next) => {
+  const origin = req.headers.origin;
+  if (origin && allowedOrigins.some(allowed => allowed === origin || origin.match(/\.vercel\.app$/))) {
+    res.header('Access-Control-Allow-Origin', origin);
+    res.header('Access-Control-Allow-Credentials', 'true');
+    res.header('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,OPTIONS,PATCH');
+    res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
+  }
+  next();
+});
+
 // ===== ROUTES =====
 app.use("/api/locations", locationRoutes);
 app.use("/api/location-images", locationImageRoutes);

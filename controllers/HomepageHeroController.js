@@ -100,22 +100,77 @@ export const uploadHomepageHero = async (req, res) => {
   }
 };
 
-// ✅ Get currently active homepage hero
-export const getActiveHomepageHero = async (req, res) => {
+export const uploadHomepageHero = async (req, res) => {
   try {
-    const homepageHero = await HomepageHero.findOne({ isActive: true }).sort({
-      createdAt: -1,
-    });
+    console.log('📸 Upload request received');
+    console.log('Origin:', req.headers.origin);
+    console.log('Files count:', req.files?.length || 0);
 
-    if (!homepageHero) {
-      return res.status(404).json({ error: "No active homepage hero images found" });
+    if (!req.files || req.files.length === 0) {
+      return res.status(400).json({ 
+        success: false,
+        error: "No images uploaded" 
+      });
     }
 
-    res.json({ data: homepageHero });
+    if (req.files.length !== 3) {
+      return res.status(400).json({ 
+        success: false,
+        error: "Exactly 3 images are required" 
+      });
+    }
+
+    console.log('✅ Files validated, processing...');
+
+    // Process uploads with timeout protection
+    const uploadPromises = req.files.map(async (file, index) => {
+      console.log(`Processing image ${index + 1}...`);
+      
+      try {
+        const cloudinaryResult = await uploadToCloudinary(file.buffer, 'resort-homepage-hero');
+        console.log(`✅ Image ${index + 1} uploaded to Cloudinary`);
+        
+        return {
+          url: cloudinaryResult.secure_url,
+          cloudinaryId: cloudinaryResult.public_id,
+          alt: `Homepage hero image ${index + 1}`,
+          title: `Hero Image ${index + 1}`,
+          isMainImage: index === 0,
+          order: index,
+          format: 'webp',
+          fileSize: cloudinaryResult.bytes
+        };
+      } catch (uploadError) {
+        console.error(`❌ Error uploading image ${index + 1}:`, uploadError);
+        throw new Error(`Failed to process image ${index + 1}: ${uploadError.message}`);
+      }
+    });
+
+    const uploadResults = await Promise.all(uploadPromises);
+    console.log('✅ All images processed');
+
+    // Deactivate existing heroes
+    await HomepageHero.updateMany({ isActive: true }, { isActive: false });
+
+    // Create new entry
+    const homepageHero = new HomepageHero({
+      images: uploadResults,
+      isActive: true,
+    });
+    await homepageHero.save();
+
+    console.log('✅ Homepage hero saved to database');
+
+    res.status(201).json({
+      success: true,
+      message: "Homepage hero images uploaded successfully as WebP",
+      data: homepageHero,
+    });
   } catch (error) {
-    console.error("Get homepage hero error:", error);
+    console.error("❌ Homepage hero upload error:", error);
     res.status(500).json({
-      error: error.message || "Failed to fetch homepage hero images",
+      success: false,
+      error: error.message || "Failed to upload homepage hero images",
     });
   }
 };
