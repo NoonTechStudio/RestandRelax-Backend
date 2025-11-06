@@ -50,55 +50,7 @@ const deleteFromCloudinary = async (publicId) => {
 };
 
 // ✅ Upload homepage hero images (Updated to use WebP conversion)
-export const uploadHomepageHero = async (req, res) => {
-  try {
-    if (!req.files || req.files.length === 0) {
-      return res.status(400).json({ error: "No images uploaded" });
-    }
 
-    if (req.files.length !== 3) {
-      return res.status(400).json({ error: "Exactly 3 images are required" });
-    }
-
-    // ✅ Convert to WebP and upload to Cloudinary (same as LocationImages)
-    const uploadResults = await Promise.all(
-      req.files.map(async (file, index) => {
-        const cloudinaryResult = await uploadToCloudinary(file.buffer, 'resort-homepage-hero');
-        
-        return {
-          url: cloudinaryResult.secure_url,
-          cloudinaryId: cloudinaryResult.public_id,
-          alt: `Homepage hero image ${index + 1}`,
-          title: `Hero Image ${index + 1}`,
-          isMainImage: index === 0,
-          order: index,
-          format: 'webp',
-          fileSize: cloudinaryResult.bytes
-        };
-      })
-    );
-
-    // Deactivate existing heroes
-    await HomepageHero.updateMany({ isActive: true }, { isActive: false });
-
-    // Create new entry
-    const homepageHero = new HomepageHero({
-      images: uploadResults,
-      isActive: true,
-    });
-    await homepageHero.save();
-
-    res.status(201).json({
-      message: "Homepage hero images uploaded successfully as WebP",
-      data: homepageHero,
-    });
-  } catch (error) {
-    console.error("Homepage hero upload error:", error);
-    res.status(500).json({
-      error: error.message || "Failed to upload homepage hero images",
-    });
-  }
-};
 
 export const uploadHomepageHero = async (req, res) => {
   try {
