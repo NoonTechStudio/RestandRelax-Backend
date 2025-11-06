@@ -21,6 +21,7 @@ router.get("/", getAllHomepageHeroSets);
 
 // ✅ Activate a specific hero set
 router.put("/activate/:id", setHomepageHeroActive);
+router.patch("/activate/:id", setHomepageHeroActive);
 
 // ✅ Delete a hero set (removes from Cloudinary + DB)
 router.delete("/:id", deleteHomepageHero);
