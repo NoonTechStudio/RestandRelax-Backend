@@ -47,22 +47,24 @@ if (process.env.VERCEL_ENV !== 'production') {
   app.use(apiLimiter);
 }
 
-// CORS configuration - Environment specific with Vercel deployment support
-const allowedOrigins = isProduction 
-  ? [
-      process.env.FRONTEND_URL,
-      process.env.ADMIN_FRONTEND_URL,
-      "https://frontend-lilac-seven-36.vercel.app",
-      "https://restand-relax-admin-frontend.vercel.app"
-    ].filter(Boolean)
-  : [
-      "http://localhost:5173",
-      "http://127.0.0.1:5173",
-      "http://localhost:5174",
-      "http://127.0.0.1:5174",
-      process.env.FRONTEND_URL,
-      process.env.ADMIN_FRONTEND_URL,
-    ].filter(Boolean);
+// CORS configuration - FIXED VERSION
+const allowedOrigins = [
+  // Production frontend URLs
+  "https://frontend-lilac-seven-36.vercel.app",
+  "https://restand-relax-admin-frontend.vercel.app",
+  
+  // Environment variables
+  process.env.FRONTEND_URL,
+  process.env.ADMIN_FRONTEND_URL,
+  
+  // Local development
+  "http://localhost:5173",
+  "http://127.0.0.1:5173",
+  "http://localhost:5174",
+  "http://127.0.0.1:5174",
+  "http://localhost:3000",
+  "http://127.0.0.1:3000"
+].filter(Boolean); // Remove undefined values
 
 // Log CORS config for debugging
 console.log('🛡️ CORS Configuration:', {
@@ -71,7 +73,7 @@ console.log('🛡️ CORS Configuration:', {
   isProduction
 });
 
-// SINGLE CORS CONFIGURATION
+// SIMPLIFIED AND WORKING CORS CONFIGURATION
 app.use(
   cors({
     origin: function (origin, callback) {
@@ -89,19 +91,23 @@ app.use(
         return callback(null, true);
       }
       
-      // Allow all Vercel preview deployments for your project
-      if (isProduction) {
-        const vercelPatterns = [
-          /^https:\/\/.*-noontechstudios-projects\.vercel\.app$/,
-          /^https:\/\/restand-relax-.*\.vercel\.app$/,
-          /^https:\/\/frontend-.*\.vercel\.app$/,
-        ];
-        
-        const isVercelDomain = vercelPatterns.some(pattern => pattern.test(origin));
-        if (isVercelDomain) {
-          console.log('✅ Vercel preview domain allowed:', origin);
-          return callback(null, true);
-        }
+      // Allow all Vercel preview deployments (both frontend and admin)
+      const vercelPatterns = [
+        /^https:\/\/.*\.vercel\.app$/,
+        /^https:\/\/restand-relax-admin-frontend.*\.vercel\.app$/,
+        /^https:\/\/frontend-.*\.vercel\.app$/,
+      ];
+      
+      const isVercelDomain = vercelPatterns.some(pattern => pattern.test(origin));
+      if (isVercelDomain) {
+        console.log('✅ Vercel domain allowed:', origin);
+        return callback(null, true);
+      }
+      
+      // For development, allow localhost on any port
+      if (origin.startsWith('http://localhost:') || origin.startsWith('http://127.0.0.1:')) {
+        console.log('✅ Localhost allowed:', origin);
+        return callback(null, true);
       }
       
       // Block all other origins
@@ -116,16 +122,18 @@ app.use(
       'Authorization', 
       'X-Requested-With',
       'Accept',
-      'Origin'
+      'Origin',
+      'Access-Control-Request-Method',
+      'Access-Control-Request-Headers'
     ],
     exposedHeaders: ['Content-Range', 'X-Content-Range'],
-    maxAge: isProduction ? 86400 : 0,
+    maxAge: 86400, // 24 hours
     preflightContinue: false,
     optionsSuccessStatus: 204
   })
 );
 
-// OPTIONS request handler (CORS preflight)
+// Handle preflight requests explicitly
 app.options('*', cors());
 
 // Body parsing with consistent limits
@@ -140,7 +148,7 @@ app.use(express.urlencoded({
 
 // Request logging middleware
 app.use((req, res, next) => {
-  console.log(`${new Date().toISOString()} - ${req.method} ${req.path}`);
+  console.log(`${new Date().toISOString()} - ${req.method} ${req.path} - Origin: ${req.headers.origin || 'none'}`);
   next();
 });
 
@@ -231,7 +239,8 @@ app.use((error, req, res, next) => {
     return res.status(403).json({
       success: false,
       error: 'CORS policy: Origin not allowed',
-      origin: req.headers.origin
+      origin: req.headers.origin,
+      allowedOrigins: allowedOrigins
     });
   }
   
