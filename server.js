@@ -186,29 +186,6 @@ app.use(async (req, res, next) => {
   }
 });
 
-// Added changes
-// Handle preflight requests explicitly - ADD THIS
-app.options('*', cors());
-
-// Add explicit CORS headers for multipart/form-data
-app.use((req, res, next) => {
-  const origin = req.headers.origin;
-  if (origin) {
-    const isAllowed = allowedOrigins.includes(origin) || 
-                     origin.match(/\.vercel\.app$/) || 
-                     origin.startsWith('http://localhost:') ||
-                     origin.startsWith('http://127.0.0.1:');
-    
-    if (isAllowed) {
-      res.header('Access-Control-Allow-Origin', origin);
-      res.header('Access-Control-Allow-Credentials', 'true');
-      res.header('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,OPTIONS,PATCH');
-      res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
-    }
-  }
-  next();
-});
-
 // ===== ROUTES =====
 app.use("/api/locations", locationRoutes);
 app.use("/api/location-images", locationImageRoutes);
