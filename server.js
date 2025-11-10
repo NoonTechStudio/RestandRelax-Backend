@@ -52,6 +52,7 @@ const allowedOrigins = [
   // Production frontend URLs
   "https://frontend-lilac-seven-36.vercel.app",
   "https://restand-relax-admin-frontend.vercel.app",
+  "https://www.restandrelax.in"
   
   // Environment variables
   process.env.FRONTEND_URL,
