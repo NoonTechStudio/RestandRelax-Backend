@@ -2,12 +2,13 @@ import Booking from "../models/Booking.js";
 
 export const createBooking = async (req, res) => {
   try {
-    const { 
-      locationId, 
-      checkInDate, 
+    const {
+      locationId,
+      checkInDate,
       checkOutDate,
       name,
       phone,
+      email,
       address,
       adults = 1,
       kids = 0,
@@ -18,40 +19,43 @@ export const createBooking = async (req, res) => {
       pricing = {}
     } = req.body;
 
-    // Check for existing PAID bookings only
-    const existingBooking = await Booking.findOne({
+    // Normalize dates (important!)
+    const startDate = new Date(checkInDate);
+    startDate.setUTCHours(0, 0, 0, 0);
+
+    const endDate = new Date(checkOutDate || checkInDate);
+    endDate.setUTCHours(23, 59, 59, 999); 
+
+    // 🔒 OVERLAP CHECK (core fix)
+    const overlappingBooking = await Booking.findOne({
       location: locationId,
-      paymentStatus: "paid",  // Only check against paid bookings
-      $or: [
-        {
-          checkInDate: { $lte: new Date(checkOutDate) },
-          checkOutDate: { $gte: new Date(checkInDate) }
-        }
-      ]
+      paymentStatus: { $in: ["partially_paid", "paid"] },
+      checkInDate: { $lte: endDate },
+      checkOutDate: { $gte: startDate }
     });
 
-    if (existingBooking) {
-      return res.status(400).json({ 
+    if (overlappingBooking) {
+      return res.status(409).json({
         success: false,
-        error: "These dates are already booked! Please select different dates." 
+        error: "Selected dates are already booked for this location"
       });
     }
 
-    // Create new booking with payment details
     const booking = new Booking({
       location: locationId,
-      checkInDate: new Date(checkInDate),
-      checkOutDate: new Date(checkOutDate),
+      checkInDate: startDate,
+      checkOutDate: endDate,
       name,
       phone,
+      email: email || "",
       address,
-      adults: parseInt(adults) || 1,
-      kids: parseInt(kids) || 0,
+      adults: Number(adults) || 1,
+      kids: Number(kids) || 0,
       withFood: Boolean(withFood),
-      paymentType: paymentType || "full",
-      amountPaid: parseFloat(amountPaid) || 0,
-      remainingAmount: parseFloat(remainingAmount) || 0,
-      paymentStatus: "pending",  // Explicitly set as pending
+      paymentType,
+      amountPaid: Number(amountPaid) || 0,
+      remainingAmount: Number(remainingAmount) || 0,
+      paymentStatus: "pending",
       pricing: {
         pricePerAdult: pricing.pricePerAdult || 0,
         pricePerKid: pricing.pricePerKid || 0,
@@ -61,19 +65,19 @@ export const createBooking = async (req, res) => {
     });
 
     await booking.save();
-    await booking.populate('location');
-    
-    res.status(201).json({
+    await booking.populate("location");
+
+    return res.status(201).json({
       success: true,
       message: "Booking created successfully",
       booking
     });
-    
+
   } catch (err) {
     console.error("Booking creation error:", err);
-    res.status(400).json({ 
+    return res.status(400).json({
       success: false,
-      error: err.message 
+      error: err.message
     });
   }
 };
@@ -81,56 +85,56 @@ export const createBooking = async (req, res) => {
 export const getBookedDates = async (req, res) => {
   try {
     const { locationId } = req.params;
-    
-    if (!locationId) {
-      return res.status(400).json({
-        success: false,
-        error: "Location ID is required"
-      });
-    }
 
-    // ONLY include paid bookings
     const bookings = await Booking.find({
       location: locationId,
-      paymentStatus: "paid"  // Only paid bookings block dates
-    }).select('checkInDate checkOutDate paymentStatus');
+      paymentStatus: { $in: ["partially_paid", "paid"] }
+    }).select("checkInDate checkOutDate");
 
-    console.log(`Found ${bookings.length} PAID bookings for location ${locationId}`);
+    const bookedDatesSet = new Set();
 
-    const bookedDates = [];
-    
     bookings.forEach(booking => {
+      console.log('Processing booking:', {
+        checkInDate: booking.checkInDate.toISOString(),
+        checkOutDate: booking.checkOutDate.toISOString(),
+        checkInDateLocal: booking.checkInDate.toLocaleString('en-IN'),
+        checkOutDateLocal: booking.checkOutDate.toLocaleString('en-IN')
+      });
+
+      // Use UTC dates directly, don't convert to IST
       const start = new Date(booking.checkInDate);
       const end = new Date(booking.checkOutDate);
-      
-      // Normalize dates
-      const normalizedStart = new Date(start.getFullYear(), start.getMonth(), start.getDate());
-      const normalizedEnd = new Date(end.getFullYear(), end.getMonth(), end.getDate());
-      
-      const currentDate = new Date(normalizedStart);
-      
-      // Include all dates from check-in to check-out (inclusive)
-      while (currentDate <= normalizedEnd) {
-        bookedDates.push({
-          date: new Date(currentDate),
-          status: booking.paymentStatus
+
+      // Convert each UTC date to local Indian date string
+      for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+        // Get Indian date from UTC
+        const indianDate = new Date(d.getTime() + (5.5 * 60 * 60 * 1000));
+        const year = indianDate.getFullYear();
+        const month = String(indianDate.getMonth() + 1).padStart(2, '0');
+        const day = String(indianDate.getDate()).padStart(2, '0');
+        const dateStr = `${year}-${month}-${day}`;
+        
+        console.log('Adding date:', {
+          utc: d.toISOString(),
+          indian: indianDate.toLocaleString('en-IN'),
+          dateStr
         });
-        currentDate.setDate(currentDate.getDate() + 1);
+        
+        bookedDatesSet.add(dateStr);
       }
     });
 
-    res.json({
-      success: true,
-      bookedDates,
-      count: bookedDates.length,
-      totalBookings: bookings.length
-    });
+    const bookedDates = Array.from(bookedDatesSet).sort();
     
+    console.log('Final booked dates:', bookedDates);
+    
+    return res.json({ success: true, bookedDates });
+
   } catch (err) {
     console.error("Get booked dates error:", err);
-    res.status(500).json({ 
+    return res.status(500).json({
       success: false,
-      error: err.message 
+      error: err.message
     });
   }
 };
@@ -208,6 +212,7 @@ export const updateBooking = async (req, res) => {
       paymentType, 
       amountPaid, 
       remainingAmount,
+      email,
       ...updateData 
     } = req.body;
 
@@ -221,13 +226,17 @@ export const updateBooking = async (req, res) => {
         const newRemainingAmount = remainingAmount !== undefined ? parseFloat(remainingAmount) : booking.remainingAmount;
         
         // Update payment status based on amounts
-        if (newRemainingAmount === 0) {
-          updateData.paymentStatus = 'paid';
-        } else if (newAmountPaid > 0) {
-          updateData.paymentStatus = 'partially_paid';
-        } else {
-          updateData.paymentStatus = 'pending';
-        }
+       if (newAmountPaid > 0 && newRemainingAmount > 0) {
+  updateData.paymentStatus = 'partially_paid';
+}
+
+if (newRemainingAmount === 0 && newAmountPaid > 0) {
+  updateData.paymentStatus = 'paid';
+}
+
+if (newAmountPaid === 0) {
+  updateData.paymentStatus = 'pending';
+}
       }
     }
 
@@ -235,6 +244,7 @@ export const updateBooking = async (req, res) => {
       req.params.id,
       {
         ...updateData,
+         ...(email && { email }), 
         ...(paymentType && { paymentType }),
         ...(amountPaid !== undefined && { amountPaid: parseFloat(amountPaid) }),
         ...(remainingAmount !== undefined && { remainingAmount: parseFloat(remainingAmount) })

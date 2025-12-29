@@ -38,7 +38,7 @@ export const apiLimiter = rateLimit({
 
 export const paymentLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 5, // 5 payment attempts per window
+  max: 15, // 5 payment attempts per window
   message: {
     success: false,
     error: 'Too many payment attempts from this IP, please try again after 15 minutes'

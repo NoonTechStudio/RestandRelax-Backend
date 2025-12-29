@@ -16,6 +16,7 @@ const LocationSchema = new mongoose.Schema({
   },
   description: { type: String },
   capacityOfPersons: { type: Number, required: true }, // total capacity of the property (bedrooms + private villas)
+  isPoolPartyAvailable: { type: Boolean, default: false }, // Add this field
   propertyDetails: {
     bedrooms: { type: Number },
     acBedrooms: { type: Number },

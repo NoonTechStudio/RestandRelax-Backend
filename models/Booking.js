@@ -23,6 +23,7 @@ const BookingSchema = new mongoose.Schema({
   // Guest info - UPDATED
   name: { type: String, required: true },
   phone: { type: String, required: true },
+  email: { type: String, required: false },
   address: { type: String, required: true }, // ADDED
   adults: { type: Number, default: 1 },
   kids: { type: Number, default: 0 },
@@ -50,7 +51,7 @@ const BookingSchema = new mongoose.Schema({
   remainingAmount: { type: Number, default: 0 },
 
   // Payment Fields
-  paymentStatus: { type: String, enum: ["pending", "paid", "failed"], default: "pending" },
+  paymentStatus: { type: String, enum: ["pending", "partially_paid", "paid", "failed"], default: "pending" },
   razorpayOrderId: { type: String },
   razorpayPaymentId: { type: String },
   razorpaySignature: { type: String },

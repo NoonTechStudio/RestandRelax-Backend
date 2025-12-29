@@ -14,6 +14,8 @@ import heroimageRoutes from "./routes/HomepageHeroRoutes.js";
 import paymentRoutes from "./routes/PaymentRoutes.js";
 import adminRoutes from "./routes/AdminRoutes.js";
 import dashboardRoutes from "./routes/dashboardRoutes.js";
+import CaretakerRoutes from "./routes/CaretakerRoutes.js";
+import PoolPartyRoutes from "./routes/poolPartyRoutes.js";
 import validateEnvironment from "./config/envValidation.js";
 
 // Security middleware
@@ -37,6 +39,7 @@ const isDevelopment = process.env.NODE_ENV === 'development' || !process.env.NOD
 console.log(`🚀 Starting server in ${process.env.NODE_ENV || 'development'} mode`);
 
 const app = express();
+await connectDB();
 
 // Enhanced security middleware with production optimizations
 app.use(securityHeaders);
@@ -153,39 +156,6 @@ app.use((req, res, next) => {
   next();
 });
 
-// Initialize database connection with caching for serverless
-let isConnected = false;
-
-const initializeDatabase = async () => {
-  if (isConnected && mongoose.connection.readyState === 1) {
-    console.log('✅ Using existing database connection');
-    return;
-  }
-
-  try {
-    await connectDB();
-    isConnected = true;
-    console.log('✅ Database connected');
-  } catch (error) {
-    console.error('❌ Database connection failed:', error.message);
-    isConnected = false;
-    throw error;
-  }
-};
-
-// Middleware to ensure DB connection before handling requests
-app.use(async (req, res, next) => {
-  try {
-    await initializeDatabase();
-    next();
-  } catch (error) {
-    res.status(503).json({
-      success: false,
-      error: 'Database connection failed',
-      message: isProduction ? 'Service temporarily unavailable' : error.message
-    });
-  }
-});
 
 // ===== ROUTES =====
 app.use("/api/locations", locationRoutes);
@@ -196,6 +166,8 @@ app.use("/api/homepage-hero", heroimageRoutes);
 app.use("/api/payments", paymentRoutes);
 app.use("/api/admin", adminRoutes);
 app.use("/api/dashboard", dashboardRoutes);
+app.use("/api/caretaker", CaretakerRoutes);
+app.use('/api/pool-parties', PoolPartyRoutes);
 
 // ===== HEALTH CHECK =====
 app.get('/api/health', (req, res) => {
@@ -282,6 +254,13 @@ try {
   console.log('✅ Razorpay config validated');
 } catch (error) {
   console.error('⚠️ Razorpay config validation failed:', error.message);
+}
+
+if (process.env.NODE_ENV === 'development') {
+  const PORT = process.env.PORT || 5000;
+  app.listen(PORT, () => {
+    console.log(`🚀 Server running locally on port ${PORT}`);
+  });
 }
 
 // Export the app for Vercel serverless functions

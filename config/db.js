@@ -1,56 +1,59 @@
-import mongoose from 'mongoose';
+// config/db.js
+import mongoose from "mongoose";
+import dotenv from 'dotenv';
+dotenv.config();
+
+const MONGO_URI = process.env.MONGO_URI;
+
+if (!MONGO_URI) {
+  throw new Error("❌ MONGO_URI is not defined in environment variables");
+}
+
+const maskedUri = MONGO_URI.replace(
+  /\/\/(.*?):(.*?)@/,
+  "//****:****@"
+);
+
+console.log("🧩 MongoDB URI in use:", maskedUri);
+
+// Global cache for Vercel / serverless
+let cached = global.mongoose;
+
+if (!cached) {
+  cached = global.mongoose = {
+    conn: null,
+    promise: null,
+  };
+}
 
 const connectDB = async () => {
-  try {
-    // Don't reconnect if already connected
-    if (mongoose.connection.readyState === 1) {
-      console.log('MongoDB already connected');
-      return mongoose.connection;
-    }
-
-    if (mongoose.connection.readyState === 2) {
-      console.log('MongoDB connection in progress, waiting...');
-      // Wait for connection to be established
-      await new Promise((resolve) => {
-        mongoose.connection.once('connected', resolve);
-      });
-      return mongoose.connection;
-    }
-
-    // Configure mongoose for serverless/Vercel
-    mongoose.set('strictQuery', false);
-    mongoose.set('bufferCommands', false);
-
-    const options = {
-      serverSelectionTimeoutMS: 5000,
-      socketTimeoutMS: 10000,
-      maxPoolSize: 1, // Limit connections for serverless
-      minPoolSize: 0,
-      maxIdleTimeMS: 10000,
-      family: 4, // Use IPv4
-      retryWrites: true,
-      retryReads: true
-    };
-
-    const conn = await mongoose.connect(process.env.MONGO_URI, options);
-
-    console.log(`MongoDB Connected: ${conn.connection.host}`);
-    console.log(`Database Name: ${conn.connection.name}`);
-
-    // Handle connection events
-    mongoose.connection.on('error', (err) => {
-      console.error('MongoDB connection error:', err);
-    });
-
-    mongoose.connection.on('disconnected', () => {
-      console.warn('MongoDB disconnected');
-    });
-
-    return conn.connection;
-  } catch (error) {
-    console.error('Error connecting to MongoDB:', error.message);
-    throw error;
+  // Reuse existing connection
+  if (cached.conn) {
+    return cached.conn;
   }
+
+  // Prevent multiple simultaneous connects
+  if (!cached.promise) {
+    cached.promise = mongoose.connect(MONGO_URI, {
+      maxPoolSize: 5,                // ⭐ CRITICAL
+      minPoolSize: 0,
+      serverSelectionTimeoutMS: 5000,
+      socketTimeoutMS: 45000,
+      family: 4,
+      retryWrites: true,
+    }).then((mongoose) => {
+      console.log("✅ MongoDB connected");
+      return mongoose;
+    }).catch(err => {
+      cached.promise = null;
+      console.error("❌ MongoDB connection error:", err);
+    });
+  }
+
+  cached.conn = await cached.promise;
+  return cached.conn;
 };
 
 export default connectDB;
+
+
