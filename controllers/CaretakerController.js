@@ -230,7 +230,7 @@ export const getCaretakerBookings = async (req, res) => {
 
     // FETCH SIMPLE BOOKINGS - Only show partially_paid/half-paid (not pending)
     const simpleFilter = {
-      paymentStatus: 'half-paid', // Only show half-paid for simple bookings
+      paymentStatus: 'partially_paid', // Only show half-paid for simple bookings
       ...(status && status !== 'all' ? { paymentStatus: status } : {}),
       ...(paymentStatus && paymentStatus !== 'all' ? { paymentStatus } : {})
     };
