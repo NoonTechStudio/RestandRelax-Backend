@@ -1,336 +1,289 @@
 // services/pdfService.js
 import PDFDocument from 'pdfkit';
 
+// ==============================================================================
+// CONFIGURATION & HELPERS
+// ==============================================================================
+
+const COLORS = {
+  primary: '#008DDA',    // Brand Blue (Matches your Frontend)
+  secondary: '#005c8f',  // Darker Blue
+  accent: '#F59E0B',     // Gold/Amber for warnings/highlights
+  textMain: '#1F2937',   // Dark Gray/Black
+  textLight: '#6B7280',  // Medium Gray
+  border: '#E5E7EB',     // Light Gray
+  bgLight: '#F8FAFC',    // Very Light Gray for table rows
+  success: '#10B981',    // Green
+  warning: '#F59E0B',    // Orange
+  danger: '#EF4444'      // Red
+};
+
+const FONTS = {
+  bold: 'Helvetica-Bold',
+  regular: 'Helvetica',
+  italic: 'Helvetica-Oblique'
+};
+
+const formatCurrency = (amount) => {
+  return `Rs. ${Number(amount || 0).toLocaleString('en-IN', {
+    maximumFractionDigits: 2,
+    minimumFractionDigits: 2
+  })}`;
+};
+
+const formatDate = (dateString) => {
+  if (!dateString) return 'N/A';
+  const date = new Date(dateString);
+  const year = date.getUTCFullYear();
+  const month = date.getUTCMonth();
+  const day = date.getUTCDate();
+  // Map month index to short name
+  const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+                      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  const weekdayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  const weekday = weekdayNames[date.getUTCDay()];
+  return `${weekday}, ${day} ${monthNames[month]}, ${year}`;
+};
+
+const drawLine = (doc, y) => {
+  doc.strokeColor(COLORS.border)
+     .lineWidth(1)
+     .moveTo(50, y)
+     .lineTo(550, y)
+     .stroke();
+};
+
+// Helper to draw striped pricing tables
+const drawTableMap = (doc, startY, items) => {
+  let currentY = startY;
+  const col1X = 50;
+  const col2X = 400; // Amount column alignment
+
+  // Header
+  doc.rect(50, currentY, 500, 25).fill(COLORS.primary);
+  doc.fillColor('#FFFFFF').fontSize(9).font(FONTS.bold);
+  doc.text('DESCRIPTION', col1X + 10, currentY + 8);
+  doc.text('AMOUNT', col2X, currentY + 8, { align: 'right', width: 140 });
+  
+  currentY += 25;
+
+  // Rows
+  items.forEach((item, index) => {
+    if (index % 2 === 0) {
+      doc.rect(50, currentY, 500, 20).fill(COLORS.bgLight);
+    }
+    
+    doc.fillColor(COLORS.textMain).fontSize(9).font(item.isBold ? FONTS.bold : FONTS.regular);
+    doc.text(item.label, col1X + 10, currentY + 6);
+    doc.text(item.value, col2X, currentY + 6, { align: 'right', width: 140 });
+    
+    currentY += 20;
+  });
+
+  // Bottom Border
+  doc.moveTo(50, currentY).lineTo(550, currentY).strokeColor(COLORS.primary).lineWidth(1).stroke();
+
+  return currentY;
+};
+
+// ==============================================================================
+// 1. LOCATION BOOKING PDF GENERATOR
+// ==============================================================================
+
 export const generateBookingPDF = (booking, location) => {
   return new Promise((resolve, reject) => {
     try {
-      // Data validation
-      const requiredFields = ['_id', 'name', 'phone', 'checkInDate', 'checkOutDate', 'adults', 'kids', 'pricing', 'amountPaid', 'remainingAmount', 'paymentType'];
-      requiredFields.forEach(field => {
-        if (!booking[field] && booking[field] !== 0) {
-          throw new Error(`Missing required field: ${field}`);
-        }
-      });
-
-      const doc = new PDFDocument({ 
-        margin: 50,
-        size: 'A4',
-        info: {
-          Title: `Booking Confirmation - ${booking._id}`,
-          Author: 'Rest & Relax',
-          Subject: 'Booking Confirmation'
-        }
-      });
-      
+      const doc = new PDFDocument({ margin: 50, size: 'A4' });
       const buffers = [];
-      
+
       doc.on('data', buffers.push.bind(buffers));
-      doc.on('end', () => {
-        const pdfData = Buffer.concat(buffers);
-        resolve(pdfData);
-      });
+      doc.on('end', () => resolve(Buffer.concat(buffers)));
 
-      // Color Scheme - Improved contrast
-      const primaryColor = '#2E8B57'; // Forest Green
-      const secondaryColor = '#1E6B4E'; // Darker Green
-      const accentColor = '#B8860B'; // Darker Gold for better contrast
-      const textDark = '#2D3748';
-      const textGray = '#4A5568'; // Darker gray for better readability
-      const textLight = '#718096';
-      const borderColor = '#E2E8F0';
-
-      let yPosition = 50;
-
-      // ===== HEADER SECTION =====
-      // Background Header
-      doc.rect(0, 0, doc.page.width, 120)
-         .fill(primaryColor);
+      // --- HEADER ---
+      // Placeholder for logo if you have one
+      // doc.image('public/logo.png', 50, 45, { width: 50 }).catch(() => {}); 
       
-      // Logo/Brand Name
-      doc.fillColor('#FFFFFF')
-         .fontSize(28)
-         .font('Helvetica-Bold')
-         .text('REST & RELAX', 50, 45);
-      
-      doc.fillColor('rgba(255,255,255,0.8)')
-         .fontSize(12)
-         .font('Helvetica')
-         .text('LUXURY RESORT & SPA', 50, 75);
-      
-      // Confirmation Badge
-      const badgeWidth = 180;
-      const badgeX = doc.page.width - badgeWidth - 50;
-      doc.roundedRect(badgeX, 40, badgeWidth, 40, 5)
-         .fill(accentColor);
-      
-      doc.fillColor('#000000')
+      doc.fillColor(COLORS.primary)
+         .fontSize(22)
+         .font(FONTS.bold)
+         .text('REST & RELAX', 50, 50);
+         
+      doc.fillColor(COLORS.textLight)
          .fontSize(10)
-         .font('Helvetica-Bold')
-         .text('BOOKING CONFIRMED', badgeX + 10, 52, {
-           width: badgeWidth - 20,
-           align: 'center'
-         });
-      
-      doc.fillColor('#000000')
-         .fontSize(8)
-         .font('Helvetica')
-         .text(`ID: ${booking._id}`, badgeX + 10, 68, {
-           width: badgeWidth - 20,
-           align: 'center'
-         });
+         .font(FONTS.regular)
+         .text('Luxury Resort Booking Confirmation', 50, 75);
 
-      // ===== MAIN CONTENT =====
-      yPosition = 140;
+      // Status Badge (Right aligned)
+      const isFullyPaid = booking.remainingAmount <= 0;
+      const statusColor = isFullyPaid ? COLORS.success : COLORS.warning;
+      const statusText = isFullyPaid ? 'FULLY PAID' : 'PARTIALLY PAID';
+      
+      doc.roundedRect(430, 50, 120, 25, 4).fill(statusColor);
+      doc.fillColor('#FFFFFF').fontSize(10).font(FONTS.bold)
+         .text(statusText, 430, 57, { width: 120, align: 'center' });
 
-      // Check page break before welcome message
-      yPosition = addSectionWithBreak(doc, yPosition, 35);
+      doc.fillColor(COLORS.textLight).fontSize(9).font(FONTS.regular)
+         .text(`Booking ID: ${booking.id}`, 430, 80, { width: 120, align: 'center' });
 
-      // Welcome Message
-      doc.fillColor(textDark)
-         .fontSize(18)
-         .font('Helvetica-Bold')
-         .text(`Thank you for your booking, ${booking.name}!`, 50, yPosition);
-      
-      yPosition += 35;
+      let y = 120;
+      drawLine(doc, y);
+      y += 20;
 
-      // ===== TWO-COLUMN LAYOUT =====
-      const columnWidth = (doc.page.width - 100) / 2;
-      
-      // Check page break before guest info section
-      yPosition = addSectionWithBreak(doc, yPosition, 130);
+      // --- 1. PROPERTY & GUEST DETAILS ---
+      const leftColX = 50;
+      const rightColX = 300;
 
-      // Left Column - Guest & Booking Info
-      const guestSectionHeight = calculateGuestSectionHeight(booking);
-      drawSection(doc, 'GUEST INFORMATION', 50, yPosition, columnWidth - 10);
+      // Left: Property
+      doc.fillColor(COLORS.textLight).fontSize(8).font(FONTS.bold).text('PROPERTY DETAILS', leftColX, y);
+      y += 15;
+      doc.fillColor(COLORS.textMain).fontSize(14).font(FONTS.bold).text(location.name || 'Location Name', leftColX, y);
+      y += 20;
+      doc.fillColor(COLORS.textLight).fontSize(9).font(FONTS.regular);
+      const address = `${location.address?.line1 || ''}, ${location.address?.city || ''}, ${location.address?.state || ''}`;
+      doc.text(address, leftColX, y, { width: 230 });
+
+      // Right: Guest (Aligned with Property top)
+      y -= 35; 
+      doc.fillColor(COLORS.textLight).fontSize(8).font(FONTS.bold).text('GUEST DETAILS', rightColX, y);
+      y += 15;
+      doc.fillColor(COLORS.textMain).fontSize(12).font(FONTS.bold).text(booking.name, rightColX, y);
+      y += 18;
+      doc.fillColor(COLORS.textMain).fontSize(10).font(FONTS.regular).text(`Phone: ${booking.phone}`, rightColX, y);
+      y += 15;
+      if(booking.email) doc.text(`Email: ${booking.email}`, rightColX, y);
       
-      let guestY = yPosition + 25;
+      y += 40;
+
+      // --- 2. BOOKING SUMMARY GRID ---
+      // Box Background
+      doc.roundedRect(50, y, 500, 70, 6).fill('#F0F9FF').stroke(COLORS.primary);
       
-      // Name
-      doc.fillColor(textGray)
-         .fontSize(9)
-         .font('Helvetica-Bold')
-         .text('Full Name:', 60, guestY);
-      doc.fillColor(textDark)
-         .fontSize(10)
-         .text(truncateText(booking.name, 40), 120, guestY);
-      
-      guestY += 18;
-      
-      // Phone
-      doc.fillColor(textGray)
-         .fontSize(9)
-         .font('Helvetica-Bold')
-         .text('Contact:', 60, guestY);
-      doc.fillColor(textDark)
-         .fontSize(10)
-         .text(booking.phone, 120, guestY);
-      
-      guestY += 18;
-      
-      // Email (if available)
-      if (booking.email) {
-        doc.fillColor(textGray)
-           .fontSize(9)
-           .font('Helvetica-Bold')
-           .text('Email:', 60, guestY);
-        doc.fillColor(textDark)
-           .fontSize(9)
-           .text(truncateText(booking.email, 35), 120, guestY);
-        guestY += 18;
-      }
-      
-      // Address (if available)
-      if (booking.address) {
-        doc.fillColor(textGray)
-           .fontSize(9)
-           .font('Helvetica-Bold')
-           .text('Address:', 60, guestY);
-        const addressLines = wrapText(booking.address, 30); // 30 chars per line
-        addressLines.forEach((line, index) => {
-          doc.fillColor(textDark)
-             .fontSize(8)
-             .text(truncateText(line, 35), 120, guestY + (index * 10));
-        });
-        guestY += (addressLines.length * 10) + 5;
+      const colWidth = 125;
+      let gridY = y + 15;
+
+      // Col 1: Check-in
+      doc.fillColor(COLORS.secondary).fontSize(8).font(FONTS.bold).text('CHECK-IN', 65, gridY);
+      doc.fillColor(COLORS.textMain).fontSize(10).font(FONTS.bold).text(formatDate(booking.checkInDate), 65, gridY + 12);
+      doc.fillColor(COLORS.textLight).fontSize(9).font(FONTS.regular).text(booking.checkInTime || '10:00 AM', 65, gridY + 25);
+
+      // Col 2: Check-out
+      doc.fillColor(COLORS.secondary).fontSize(8).font(FONTS.bold).text('CHECK-OUT', 65 + colWidth, gridY);
+      doc.fillColor(COLORS.textMain).fontSize(10).font(FONTS.bold).text(formatDate(booking.checkOutDate), 65 + colWidth, gridY + 12);
+      const checkoutTime = booking.sameDayCheckout ? '10:00 PM' : '10:00 AM';
+      doc.fillColor(COLORS.textLight).fontSize(9).font(FONTS.regular).text(checkoutTime, 65 + colWidth, gridY + 25);
+
+      // Col 3: Guests
+      doc.fillColor(COLORS.secondary).fontSize(8).font(FONTS.bold).text('GUESTS', 65 + (colWidth * 2), gridY);
+      doc.fillColor(COLORS.textMain).fontSize(10).font(FONTS.regular).text(`${booking.adults} Adults`, 65 + (colWidth * 2), gridY + 12);
+      if (booking.kids > 0) {
+        doc.text(`${booking.kids} Kids`, 65 + (colWidth * 2), gridY + 25);
       }
 
-      // Right Column - Resort Info
-      drawSection(doc, 'RESORT DETAILS', 50 + columnWidth + 10, yPosition, columnWidth - 10);
-      
-      let resortY = yPosition + 25;
-      
-      doc.fillColor(primaryColor)
-         .fontSize(11)
-         .font('Helvetica-Bold')
-         .text(truncateText(location.name, 30), 60 + columnWidth + 10, resortY);
-      
-      resortY += 15;
-      
-      const addressLine1 = `${location.address.line1}, ${location.address.city}`;
-      doc.fillColor(textDark)
-         .fontSize(9)
-         .text(truncateText(addressLine1, 35), 60 + columnWidth + 10, resortY);
-      
-      resortY += 12;
-      
-      const addressLine2 = `${location.address.state} - ${location.address.pincode}`;
-      doc.fillColor(textDark)
-         .fontSize(9)
-         .text(addressLine2, 60 + columnWidth + 10, resortY);
-      
-      resortY += 15;
-      
-      doc.fillColor(textGray)
-         .fontSize(9)
-         .text('📞 +91 9725860193', 60 + columnWidth + 10, resortY);
+      // Col 4: Type
+const durationLabel = booking.sameDayCheckout ? 'Day Picnic' : 'Night Stay';
+let durationVal = '';
+if (booking.sameDayCheckout) {
+  durationVal = '1 Day';
+} else {
+  const nights = booking.pricing?.nights || 0;
+  const days = booking.pricing?.days || 0;
+  durationVal = `${nights} Night${nights !== 1 ? 's' : ''} / ${days} Day${days !== 1 ? 's' : ''}`;
+}
 
-      yPosition += Math.max(guestSectionHeight, 120);
+doc.fillColor(COLORS.secondary).fontSize(8).font(FONTS.bold).text('TYPE', 65 + (colWidth * 3), gridY);
+doc.fillColor(COLORS.primary).fontSize(10).font(FONTS.bold).text(durationLabel, 65 + (colWidth * 3), gridY + 12);
+doc.fillColor(COLORS.textMain).fontSize(9).font(FONTS.regular).text(durationVal, 65 + (colWidth * 3), gridY + 25);
 
-      // ===== BOOKING DETAILS =====
-      yPosition = addSectionWithBreak(doc, yPosition, 140);
-      drawSection(doc, 'BOOKING DETAILS', 50, yPosition, doc.page.width - 100);
-      
-      const checkInDate = new Date(booking.checkInDate);
-      const checkOutDate = new Date(booking.checkOutDate);
-      const nights = Math.ceil((checkOutDate - checkInDate) / (1000 * 60 * 60 * 24));
-      
-      const details = [
-        { label: 'Check-in Date', value: checkInDate.toLocaleDateString('en-IN', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }) },
-        { label: 'Check-out Date', value: checkOutDate.toLocaleDateString('en-IN', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }) },
-        { label: 'Duration', value: `${nights} ${nights > 1 ? 'nights' : 'night'}` },
-        { label: 'Guests', value: `${booking.adults} Adults, ${booking.kids} Kids` },
-        { label: 'Food Service', value: booking.withFood ? '✅ Included' : '❌ Not Included' }
-      ];
-      
-      details.forEach((detail, index) => {
-        const detailY = yPosition + 30 + (index * 18);
-        doc.fillColor(textGray)
-           .fontSize(10)
-           .font('Helvetica')
-           .text(detail.label + ':', 60, detailY);
-        doc.fillColor(textDark)
-           .fontSize(10)
-           .font('Helvetica-Bold')
-           .text(detail.value, 200, detailY);
-      });
+      y += 90;
 
-      yPosition += 140;
-
-      // ===== PAYMENT SUMMARY =====
-      yPosition = addSectionWithBreak(doc, yPosition, 130);
-      drawSection(doc, 'PAYMENT SUMMARY', 50, yPosition, doc.page.width - 100);
-      
-      // Format currency with proper rupee symbol
-      const formatCurrency = (amount) => {
-        return `₹${typeof amount === 'number' ? amount.toLocaleString('en-IN') : '0'}`;
-      };
-
-      const paymentDetails = [
-        { label: 'Total Amount', value: formatCurrency(booking.pricing.totalPrice), color: textDark },
-        { label: 'Amount Paid', value: formatCurrency(booking.amountPaid), color: primaryColor },
-        { label: 'Remaining Amount', value: formatCurrency(booking.remainingAmount), color: booking.remainingAmount > 0 ? '#D97706' : primaryColor },
-        { label: 'Payment Type', value: booking.paymentType === 'token' ? 'Token Payment' : 'Full Payment', color: textDark },
-        { label: 'Payment Status', value: booking.remainingAmount === 0 ? 'Fully Paid' : 'Partially Paid', color: booking.remainingAmount === 0 ? primaryColor : '#D97706' }
-      ];
-      
-      paymentDetails.forEach((detail, index) => {
-        const paymentY = yPosition + 30 + (index * 18);
-        doc.fillColor(textGray)
-           .fontSize(10)
-           .font('Helvetica')
-           .text(detail.label + ':', 60, paymentY);
-        doc.fillColor(detail.color)
-           .fontSize(10)
-           .font('Helvetica-Bold')
-           .text(detail.value, 200, paymentY);
-      });
-
-      yPosition += 130;
-
-      // ===== IMPORTANT NOTES =====
-      const isTokenPayment = booking.paymentType === 'token';
-      
-      yPosition = addSectionWithBreak(doc, yPosition, 110);
-      
-      if (isTokenPayment && booking.remainingAmount > 0) {
-        drawSection(doc, 'IMPORTANT INFORMATION', 50, yPosition, doc.page.width - 100, '#FEF3C7');
+      // --- 3. FOOD PACKAGE DETAILS ---
+      if (booking.withFood) {
+        doc.fillColor(COLORS.textMain).fontSize(12).font(FONTS.bold).text('Food Package Details', 50, y);
+        y += 20;
         
-        doc.fillColor('#92400E')
-           .fontSize(9)
-           .font('Helvetica-Bold')
-           .text('Payment Reminder:', 60, yPosition + 25);
-        
-        doc.fillColor('#92400E')
-           .fontSize(9)
-           .font('Helvetica')
-           .text(`• Please pay the remaining amount of ${formatCurrency(booking.remainingAmount)} at the property during check-in.`, 60, yPosition + 40, {
-             width: doc.page.width - 120
+        // Logic to display daily breakdown or single package
+        let foodDesc = '';
+        if (booking.dailyFoodPackages && booking.dailyFoodPackages.length > 0) {
+           booking.dailyFoodPackages.forEach(daily => {
+             foodDesc += `• ${formatDate(daily.date)}: ${daily.name}\n`;
            });
+        } else if (booking.foodPackage) {
+           foodDesc = `Package: ${booking.foodPackage.name}\nDescription: ${booking.foodPackage.description || 'Standard Menu'}`;
+        } else if (booking.pricing.selectedFoodPackage) {
+           foodDesc = `Package: ${booking.pricing.selectedFoodPackage.name}`;
+        }
+
+        // Food Box
+        const boxHeight = booking.dailyFoodPackages?.length > 0 ? 30 + (booking.dailyFoodPackages.length * 15) : 50;
+        doc.roundedRect(50, y, 500, boxHeight, 4).fill(COLORS.bgLight).stroke(COLORS.border);
         
-        doc.text('• Please carry a valid government ID proof for verification', 60, yPosition + 60, {
-          width: doc.page.width - 120
-        });
+        doc.fillColor(COLORS.textMain).fontSize(10).font(FONTS.regular)
+           .text(foodDesc, 60, y + 10, { width: 480, lineGap: 5 });
         
-        doc.text('• Early check-in and late check-out subject to availability', 60, yPosition + 75, {
-          width: doc.page.width - 120
-        });
-        
-        yPosition += 100;
-      } else {
-        drawSection(doc, 'BOOKING COMPLETE', 50, yPosition, doc.page.width - 100, '#F0FFF4');
-        
-        doc.fillColor(primaryColor)
-           .fontSize(9)
-           .font('Helvetica-Bold')
-           .text('Your booking is fully confirmed and paid!', 60, yPosition + 25);
-        
-        doc.fillColor(textDark)
-           .fontSize(9)
-           .font('Helvetica')
-           .text('• Please carry a valid government ID proof for verification', 60, yPosition + 45, {
-             width: doc.page.width - 120
-           });
-        
-        doc.text('• Early check-in and late check-out subject to availability', 60, yPosition + 60, {
-          width: doc.page.width - 120
-        });
-        
-        doc.text('• Reception is available 24/7 for your convenience', 60, yPosition + 75, {
-          width: doc.page.width - 120
-        });
-        
-        yPosition += 100;
+        y += boxHeight + 20;
       }
 
-      // ===== FOOTER =====
-      const footerY = doc.page.height - 80;
+      // --- 4. FINANCIAL BREAKDOWN ---
+doc.fillColor(COLORS.textMain).fontSize(12).font(FONTS.bold).text('Payment Breakdown', 50, y);
+y += 15;
+
+const AmountPaid = booking?.amountPaid || 0;
+const RemainingAmount = booking?.remainingAmount || 0;
+const totalPrice = AmountPaid + RemainingAmount;
+const calfoodPrice = booking.pricing?.foodPackagePrice || 0;
+const AccomodationPrice = totalPrice - calfoodPrice; 
+
+const pricingItems = [
+  { 
+    label: booking.sameDayCheckout ? 'Day Picnic Venue Charges' : 'Accommodation Charges', 
+    value: formatCurrency(AccomodationPrice) 
+  }
+];
+
+if (booking.pricing?.foodPackagePrice > 0) {
+  pricingItems.push({ 
+    label: 'Food Package Charges', 
+    value: formatCurrency(booking.pricing.foodPackagePrice) 
+  });
+}
+
+// Total Line (use totalPrice from booking)
+pricingItems.push({ 
+  label: 'Total Booking Amount', 
+  value: formatCurrency(totalPrice), 
+  isBold: true 
+});
+
+// Paid Line
+const paymentLabel = booking.paymentType === 'token' ? 'Amount Paid (Token)' : 'Amount Paid (Full)';
+pricingItems.push({ 
+  label: paymentLabel, 
+  value: `-${formatCurrency(booking.amountPaid || 0)}`, 
+  isBold: false 
+});
+
+y = drawTableMap(doc, y, pricingItems);
+
+      // --- 5. BALANCE DUE BOX ---
+      if (booking.remainingAmount > 0) {
+        y += 20;
+        doc.roundedRect(250, y, 300, 40, 4).fill('#FFFBEB').stroke(COLORS.warning);
+        
+        doc.fillColor(COLORS.warning).fontSize(10).font(FONTS.bold).text('BALANCE DUE AT PROPERTY', 270, y + 15);
+        doc.fillColor(COLORS.textMain).fontSize(14).font(FONTS.bold).text(formatCurrency(booking.remainingAmount), 250, y + 13, { align: 'right', width: 280 });
+      }
+
+      // --- 6. FOOTER & T&C ---
+      const footerY = 720;
+      doc.moveTo(50, footerY).lineTo(550, footerY).strokeColor(COLORS.border).stroke();
       
-      doc.rect(0, footerY, doc.page.width, 80)
-         .fill('#F7FAFC');
-      
-      doc.moveTo(50, footerY)
-         .lineTo(doc.page.width - 50, footerY)
-         .strokeColor(borderColor)
-         .lineWidth(1)
-         .stroke();
-      
-      doc.fillColor(primaryColor)
-         .fontSize(16)
-         .font('Helvetica-Bold')
-         .text('Rest & Relax', doc.page.width / 2, footerY + 15, { align: 'center' });
-      
-      doc.fillColor(textGray)
-         .fontSize(9)
-         .font('Helvetica')
-         .text('Luxury Resort Experience', doc.page.width / 2, footerY + 35, { align: 'center' });
-      
-      doc.fillColor(textLight)
-         .fontSize(8)
-         .text('📞 +91 90990 48961 | ✉️ info@restandrelax.in', doc.page.width / 2, footerY + 50, { align: 'center' });
-      
-      doc.fillColor(textLight)
-         .fontSize(7)
-         .text('Thank you for choosing Rest & Relax. We look forward to serving you!', doc.page.width / 2, footerY + 62, { align: 'center' });
+      doc.fontSize(8).fillColor(COLORS.textLight).font(FONTS.regular);
+      doc.text('Terms & Conditions:', 50, footerY + 10);
+      doc.text('1. Token amount is non-refundable.', 50, footerY + 22);
+      doc.text('2. Please carry a valid Govt ID proof during check-in.', 50, footerY + 34);
+      doc.text('3. Remaining balance must be cleared upon arrival via Cash or UPI.', 50, footerY + 46);
+
+      doc.fontSize(8).fillColor(COLORS.primary).text('Generated by Rest & Relax', 50, footerY + 65, { align: 'center', width: 500 });
 
       doc.end();
     } catch (error) {
@@ -339,408 +292,146 @@ export const generateBookingPDF = (booking, location) => {
   });
 };
 
+// ==============================================================================
+// 2. POOL PARTY BOOKING PDF GENERATOR
+// ==============================================================================
 
 export const generatePoolPartyBookingPDF = (booking, poolParty) => {
   return new Promise((resolve, reject) => {
     try {
-      const doc = new PDFDocument({ 
-        margin: 50,
-        size: 'A4',
-        info: {
-          Title: `Pool Party Booking - ${booking._id}`,
-          Author: 'Rest & Relax',
-          Subject: 'Pool Party Booking Confirmation'
-        }
-      });
-      
+      const doc = new PDFDocument({ margin: 50, size: 'A4' });
       const buffers = [];
-      
+
       doc.on('data', buffers.push.bind(buffers));
-      doc.on('end', () => {
-        const pdfData = Buffer.concat(buffers);
-        resolve(pdfData);
-      });
+      doc.on('end', () => resolve(Buffer.concat(buffers)));
 
-      // Color Scheme
-      const primaryColor = '#2E8B57';
-      const secondaryColor = '#1E6B4E';
-      const accentColor = '#B8860B';
-      const textDark = '#2D3748';
-      const textGray = '#4A5568';
-      const textLight = '#718096';
-      const borderColor = '#E2E8F0';
+      // --- HEADER ---
+      doc.fillColor(COLORS.primary).fontSize(22).font(FONTS.bold).text('REST & RELAX', 50, 50);
+      doc.fillColor(COLORS.secondary).fontSize(10).font(FONTS.bold).text('OFFICIAL EVENT PASS', 50, 75);
 
-      let yPosition = 50;
+      // Status Badge
+      const isPaid = booking.remainingAmount <= 0;
+      doc.roundedRect(430, 50, 120, 25, 4).fill(isPaid ? COLORS.success : COLORS.warning);
+      doc.fillColor('#FFFFFF').fontSize(10).font(FONTS.bold)
+         .text(isPaid ? 'CONFIRMED' : 'PARTIAL PAID', 430, 57, { width: 120, align: 'center' });
+      
+      doc.fillColor(COLORS.textLight).fontSize(9).font(FONTS.regular)
+         .text(`Pass ID: ${booking.id}`, 430, 80, { width: 120, align: 'center' });
 
-      // ===== HEADER SECTION =====
-      doc.rect(0, 0, doc.page.width, 120)
-         .fill(primaryColor);
-      
-      doc.fillColor('#FFFFFF')
-         .fontSize(28)
-         .font('Helvetica-Bold')
-         .text('REST & RELAX', 50, 45);
-      
-      doc.fillColor('rgba(255,255,255,0.8)')
-         .fontSize(12)
-         .font('Helvetica')
-         .text('POOL PARTY BOOKING', 50, 75);
-      
-      // Badge
-      const badgeWidth = 180;
-      const badgeX = doc.page.width - badgeWidth - 50;
-      doc.roundedRect(badgeX, 40, badgeWidth, 40, 5)
-         .fill(accentColor);
-      
-      doc.fillColor('#000000')
-         .fontSize(10)
-         .font('Helvetica-Bold')
-         .text('POOL PARTY BOOKED', badgeX + 10, 52, {
-           width: badgeWidth - 20,
-           align: 'center'
-         });
-      
-      doc.fillColor('#000000')
-         .fontSize(8)
-         .font('Helvetica')
-         .text(`ID: ${booking._id}`, badgeX + 10, 68, {
-           width: badgeWidth - 20,
-           align: 'center'
-         });
+      let y = 120;
+      drawLine(doc, y);
+      y += 20;
 
-      // ===== MAIN CONTENT =====
-      yPosition = 140;
+      // --- 1. EVENT DETAILS (Center Stage) ---
+      doc.fillColor(COLORS.textMain).fontSize(16).font(FONTS.bold).text('POOL PARTY ACCESS', 50, y, { align: 'center' });
+      y += 25;
+      
+      doc.fillColor(COLORS.textMain).fontSize(12).font(FONTS.bold).text(poolParty.locationName || 'Pool Venue', 50, y, { align: 'center' });
+      y += 20;
 
-      // Welcome Message
-      doc.fillColor(textDark)
-         .fontSize(18)
-         .font('Helvetica-Bold')
-         .text(`Thank you for your pool party booking, ${booking.guestName}!`, 50, yPosition);
+      // Info Grid for Event
+      const gridY = y;
+      doc.roundedRect(100, gridY, 400, 60, 4).fill(COLORS.bgLight).stroke(COLORS.border);
       
-      yPosition += 35;
+      // Date
+      doc.fillColor(COLORS.textLight).fontSize(9).font(FONTS.bold).text('DATE', 120, gridY + 15);
+      doc.fillColor(COLORS.textMain).fontSize(11).font(FONTS.bold).text(formatDate(booking.bookingDate), 120, gridY + 30);
+      
+      // Session
+      doc.fillColor(COLORS.textLight).fontSize(9).font(FONTS.bold).text('SESSION', 270, gridY + 15);
+      doc.fillColor(COLORS.textMain).fontSize(11).font(FONTS.bold).text(booking.session, 270, gridY + 30);
+      
+      // Time
+      const sessionInfo = poolParty.timings?.find(t => t.session === booking.session);
+      const timeString = sessionInfo ? `${sessionInfo.startTime} - ${sessionInfo.endTime}` : 'TBD';
+      doc.fillColor(COLORS.textLight).fontSize(9).font(FONTS.bold).text('TIMING', 400, gridY + 15);
+      doc.fillColor(COLORS.textMain).fontSize(11).font(FONTS.bold).text(timeString, 400, gridY + 30);
 
-      // Two Column Layout
-      const columnWidth = (doc.page.width - 100) / 2;
+      y += 90;
 
-      // Left Column - Guest Info
-      drawSectionPool(doc, 'GUEST INFORMATION', 50, yPosition, columnWidth - 10);
+      // --- 2. GUEST & TICKET INFO ---
+      doc.fillColor(COLORS.textMain).fontSize(12).font(FONTS.bold).text('Guest Information', 50, y);
+      y += 15;
       
-      let guestY = yPosition + 25;
+      // Name & Contact
+      doc.fillColor(COLORS.textMain).fontSize(11).font(FONTS.regular).text(`Name: ${booking.guestName}`, 50, y);
+      doc.text(`Contact: ${booking.phone}`, 300, y);
+      y += 20;
+      if(booking.email) doc.text(`Email: ${booking.email}`, 50, y);
       
-      doc.fillColor(textGray)
-         .fontSize(9)
-         .font('Helvetica-Bold')
-         .text('Full Name:', 60, guestY);
-      doc.fillColor(textDark)
-         .fontSize(10)
-         .text(booking.guestName, 120, guestY);
-      
-      guestY += 18;
-      
-      doc.fillColor(textGray)
-         .fontSize(9)
-         .font('Helvetica-Bold')
-         .text('Contact:', 60, guestY);
-      doc.fillColor(textDark)
-         .fontSize(10)
-         .text(booking.phone, 120, guestY);
-      
-      guestY += 18;
-      
-      doc.fillColor(textGray)
-         .fontSize(9)
-         .font('Helvetica-Bold')
-         .text('Email:', 60, guestY);
-      doc.fillColor(textDark)
-         .fontSize(9)
-         .text(booking.email, 120, guestY);
+      y += 30;
 
-      // Right Column - Pool Party Info
-      drawSectionPool(doc, 'POOL PARTY DETAILS', 50 + columnWidth + 10, yPosition, columnWidth - 10);
+      // --- 3. TICKET BREAKDOWN (Blue Box) ---
+      doc.roundedRect(50, y, 500, 60, 4).fill('#EFF6FF').stroke(COLORS.primary);
       
-      let partyY = yPosition + 25;
+      // Guests
+      doc.fillColor(COLORS.primary).fontSize(9).font(FONTS.bold).text('ADMIT', 70, y + 15);
+      doc.fillColor(COLORS.textMain).fontSize(12).text(`${booking.adults} Adults, ${booking.kids} Kids`, 70, y + 30);
       
-      doc.fillColor(primaryColor)
-         .fontSize(11)
-         .font('Helvetica-Bold')
-         .text(poolParty.locationName, 60 + columnWidth + 10, partyY);
-      
-      partyY += 15;
-      
-      doc.fillColor(textDark)
-         .fontSize(9)
-         .font('Helvetica-Bold')
-         .text('Session:', 60 + columnWidth + 10, partyY);
-      doc.fillColor(textDark)
-         .fontSize(9)
-         .text(booking.session, 130 + columnWidth, partyY);
-      
-      partyY += 12;
-      
-      doc.fillColor(textGray)
-         .fontSize(9)
-         .font('Helvetica-Bold')
-         .text('Time:', 60 + columnWidth + 10, partyY);
-      
-      const sessionTiming = poolParty.timings.find(t => t.session === booking.session);
-      if (sessionTiming) {
-        doc.fillColor(textDark)
-           .fontSize(9)
-           .text(`${sessionTiming.startTime} - ${sessionTiming.endTime}`, 130 + columnWidth, partyY);
-      }
-      
-      partyY += 12;
-      
-      doc.fillColor(textGray)
-         .fontSize(9)
-         .font('Helvetica-Bold')
-         .text('Capacity:', 60 + columnWidth + 10, partyY);
-      doc.fillColor(textDark)
-         .fontSize(9)
-         .text(`${booking.totalGuests} guests`, 130 + columnWidth, partyY);
+      // Food
+      doc.fillColor(COLORS.primary).fontSize(9).font(FONTS.bold).text('MEAL PLAN', 300, y + 15);
+      const foodText = booking.withFood && booking.foodPackage 
+        ? (booking.foodPackage.name || 'Selected Package')
+        : 'Entry Only (No Food)';
+      doc.fillColor(COLORS.textMain).fontSize(12).text(foodText, 300, y + 30);
 
-      yPosition += 120;
+      y += 80;
 
-      // ===== BOOKING DETAILS =====
-      drawSectionPool(doc, 'BOOKING DETAILS', 50, yPosition, doc.page.width - 100);
-      
-      const bookingDate = new Date(booking.bookingDate);
-      
-      const details = [
-        { label: 'Booking Date', value: bookingDate.toLocaleDateString('en-IN', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }) },
-        { label: 'Session', value: booking.session },
-        { label: 'Guests', value: `${booking.adults} Adults, ${booking.kids} Kids` },
-        { label: 'Total Guests', value: booking.totalGuests.toString() }
+      // --- 4. FINANCIAL SUMMARY ---
+      doc.fillColor(COLORS.textMain).fontSize(12).font(FONTS.bold).text('Payment Summary', 50, y);
+      y += 15;
+
+      // Calculate logic based on provided schema
+      const foodPrice = booking.pricing?.foodPackagePrice || 0;
+      const totalAmount = booking.pricing?.totalPrice || 0;
+      const entryPrice = totalAmount - foodPrice;
+
+      const pricingItems = [
+        { label: 'Pool Entry Charges', value: formatCurrency(entryPrice) }
       ];
-      
-      details.forEach((detail, index) => {
-        const detailY = yPosition + 30 + (index * 18);
-        doc.fillColor(textGray)
-           .fontSize(10)
-           .font('Helvetica')
-           .text(detail.label + ':', 60, detailY);
-        doc.fillColor(textDark)
-           .fontSize(10)
-           .font('Helvetica-Bold')
-           .text(detail.value, 200, detailY);
-      });
 
-      yPosition += 120;
+      if (foodPrice > 0) {
+        pricingItems.push({ label: 'Food Package Charges', value: formatCurrency(foodPrice) });
+      }
 
-      // ===== PAYMENT SUMMARY =====
-      drawSectionPool(doc, 'PAYMENT SUMMARY', 50, yPosition, doc.page.width - 100);
+      pricingItems.push({ label: 'Total Amount', value: formatCurrency(totalAmount), isBold: true });
+      pricingItems.push({ label: 'Amount Paid', value: `-${formatCurrency(booking.amountPaid)}` });
 
-// ✅ SOURCE OF TRUTH = BOOKING
-const totalAmount = Number(
-  booking.pricing?.totalPrice ||
-  booking.pricing?.totalAmount ||
-  0
-);
+      y = drawTableMap(doc, y, pricingItems);
 
-const amountPaid = Number(booking.amountPaid || 0);
-const remainingAmount = Math.max(0, totalAmount - amountPaid);
+      // Balance Due Highlight
+      if (booking.remainingAmount > 0) {
+        y += 20;
+        doc.roundedRect(250, y, 300, 40, 4).fill('#FFFBEB').stroke(COLORS.warning);
+        doc.fillColor(COLORS.warning).fontSize(10).font(FONTS.bold).text('REMAINING BALANCE', 270, y + 15);
+        doc.fillColor(COLORS.textMain).fontSize(14).font(FONTS.bold).text(formatCurrency(booking.remainingAmount), 250, y + 13, { align: 'right', width: 280 });
+      }
 
-// ✅ STATUS TEXT FROM DB
-let paymentStatusText = 'Pending';
-if (booking.paymentStatus === 'partially_paid') {
-  paymentStatusText = 'Partially Paid';
-} else if (booking.paymentStatus === 'paid') {
-  paymentStatusText = 'Fully Paid';
-}
-
-// ✅ PAYMENT TYPE
-const paymentTypeText =
-  booking.paymentType === 'token'
-    ? 'Token Payment'
-    : 'Full Payment';
-
-// Format currency
-const formatCurrency = (amount) =>
-  `₹${Number(amount).toLocaleString('en-IN')}`;
-
-const paymentDetails = [
-  { label: 'Total Amount', value: formatCurrency(totalAmount), color: textDark },
-  { label: 'Amount Paid', value: formatCurrency(amountPaid), color: primaryColor },
-  { label: 'Remaining Amount', value: formatCurrency(remainingAmount), color: remainingAmount > 0 ? '#D97706' : primaryColor },
-  { label: 'Payment Type', value: paymentTypeText, color: textDark },
-  { label: 'Payment Status', value: paymentStatusText, color: remainingAmount > 0 ? '#D97706' : primaryColor }
-];
-
-paymentDetails.forEach((detail, index) => {
-  const paymentY = yPosition + 30 + (index * 18);
-  doc.fillColor(textGray)
-     .fontSize(10)
-     .font('Helvetica')
-     .text(detail.label + ':', 60, paymentY);
-  doc.fillColor(detail.color)
-     .fontSize(10)
-     .font('Helvetica-Bold')
-     .text(detail.value, 200, paymentY);
-});
-
-yPosition += 130;
-
-      // ===== IMPORTANT NOTES =====
-      drawSectionPool(doc, 'IMPORTANT INFORMATION', 50, yPosition, doc.page.width - 100, '#FEF3C7');
-      
-      doc.fillColor('#92400E')
-         .fontSize(9)
-         .font('Helvetica-Bold')
-         .text('Please Note:', 60, yPosition + 25);
+      // --- 5. IMPORTANT NOTES ---
+      y += 60;
+      doc.fillColor(COLORS.danger).fontSize(10).font(FONTS.bold).text('IMPORTANT RULES:', 50, y);
+      y += 15;
       
       const notes = [
-        '• Please arrive 15 minutes before your session starts',
-        '• Children must be accompanied by adults at all times',
-        '• Outside food and drinks are not allowed',
-        '• Please carry valid ID proof for verification',
-        '• No refunds for cancellations within 24 hours of booking'
+        '• Arrival: Please arrive 15 minutes before your session starts.',
+        '• Safety: Children must be accompanied by adults at all times in the pool.',
+        '• Attire: Proper nylon/synthetic swimwear is mandatory.',
+        '• Prohibited: Outside food and drinks are strictly not allowed.'
       ];
       
-      notes.forEach((note, index) => {
-        doc.fillColor('#92400E')
-           .fontSize(9)
-           .font('Helvetica')
-           .text(note, 60, yPosition + 45 + (index * 12), {
-             width: doc.page.width - 120
-           });
+      notes.forEach(note => {
+        doc.fillColor(COLORS.textMain).fontSize(9).font(FONTS.regular).text(note, 50, y);
+        y += 14;
       });
 
-      // ===== FOOTER =====
-      const footerY = doc.page.height - 80;
-      
-      doc.rect(0, footerY, doc.page.width, 80)
-         .fill('#F7FAFC');
-      
-      doc.moveTo(50, footerY)
-         .lineTo(doc.page.width - 50, footerY)
-         .strokeColor(borderColor)
-         .lineWidth(1)
-         .stroke();
-      
-      doc.fillColor(primaryColor)
-         .fontSize(16)
-         .font('Helvetica-Bold')
-         .text('Rest & Relax', doc.page.width / 2, footerY + 15, { align: 'center' });
-      
-      doc.fillColor(textGray)
-         .fontSize(9)
-         .font('Helvetica')
-         .text('Luxury Resort & Pool Party', doc.page.width / 2, footerY + 35, { align: 'center' });
-      
-      doc.fillColor(textLight)
-         .fontSize(8)
-         .text('📞 +91 90990 48961 | ✉️ info@restandrelax.in', doc.page.width / 2, footerY + 50, { align: 'center' });
-      
-      doc.fillColor(textLight)
-         .fontSize(7)
-         .text('Thank you for choosing Rest & Relax. We look forward to serving you!', doc.page.width / 2, footerY + 62, { align: 'center' });
+      // --- 6. FOOTER ---
+      const footerY = 720;
+      doc.moveTo(50, footerY).lineTo(550, footerY).strokeColor(COLORS.border).stroke();
+      doc.fillColor(COLORS.primary).fontSize(8).text('Generated by Rest & Relax', 50, footerY + 15, { align: 'center', width: 500 });
 
       doc.end();
     } catch (error) {
       reject(error);
     }
   });
-};
-
-// Helper function to draw sections
-const drawSectionPool = (doc, title, x, y, width, bgColor = null) => {
-  const sectionHeight = title.includes('INFORMATION') ? 90 : 110;
-  
-  if (bgColor) {
-    doc.roundedRect(x, y, width, sectionHeight, 5)
-       .fill(bgColor);
-  }
-  
-  // Section title with accent
-  doc.fillColor('#2E8B57')
-     .rect(x, y, 4, 20)
-     .fill();
-  
-  doc.fillColor('#2D3748')
-     .fontSize(12)
-     .font('Helvetica-Bold')
-     .text(title, x + 10, y + 5);
-  
-  // Border
-  doc.roundedRect(x, y, width, sectionHeight, 5)
-     .strokeColor('#E2E8F0')
-     .lineWidth(1)
-     .stroke();
-};
-
-// Helper function to draw consistent sections
-const drawSection = (doc, title, x, y, width, bgColor = null) => {
-  const sectionHeight = title.includes('IMPORTANT') || title.includes('COMPLETE') ? 90 : 
-                       title.includes('PAYMENT') ? 120 : 110;
-  
-  if (bgColor) {
-    doc.roundedRect(x, y, width, sectionHeight, 5)
-       .fill(bgColor);
-  }
-  
-  // Section title with accent
-  doc.fillColor('#2E8B57')
-     .rect(x, y, 4, 20)
-     .fill();
-  
-  doc.fillColor('#2D3748')
-     .fontSize(12)
-     .font('Helvetica-Bold')
-     .text(title, x + 10, y + 5);
-  
-  // Border
-  doc.roundedRect(x, y, width, sectionHeight, 5)
-     .strokeColor('#E2E8F0')
-     .lineWidth(1)
-     .stroke();
-};
-
-// New helper functions for improved layout
-
-// Page break detection
-const addSectionWithBreak = (doc, yPosition, sectionHeight) => {
-  if (yPosition + sectionHeight > doc.page.height - 150) {
-    doc.addPage();
-    return 50; // reset Y position for new page
-  }
-  return yPosition;
-};
-
-// Calculate dynamic height for guest section
-const calculateGuestSectionHeight = (booking) => {
-  let height = 80; // base height
-  
-  if (booking.email) height += 18;
-  if (booking.address) {
-    const addressLines = Math.ceil(booking.address.length / 30);
-    height += (addressLines * 10) + 5;
-  }
-  
-  return Math.max(height, 120); // minimum height
-};
-
-// Text truncation for long content
-const truncateText = (text, maxLength = 40) => {
-  if (!text) return '';
-  return text.length > maxLength ? text.substring(0, maxLength) + '...' : text;
-};
-
-// Text wrapping for addresses
-const wrapText = (text, maxLineLength = 30) => {
-  if (!text) return [];
-  const words = text.split(' ');
-  const lines = [];
-  let currentLine = '';
-
-  words.forEach(word => {
-    if ((currentLine + word).length <= maxLineLength) {
-      currentLine += (currentLine ? ' ' : '') + word;
-    } else {
-      if (currentLine) lines.push(currentLine);
-      currentLine = word;
-    }
-  });
-
-  if (currentLine) lines.push(currentLine);
-  return lines;
 };

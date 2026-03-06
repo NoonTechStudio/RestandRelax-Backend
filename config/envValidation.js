@@ -9,10 +9,10 @@ const validateEnvironment = () => {
     'RAZORPAY_KEY_SECRET',
     'EMAIL_USER',
     'EMAIL_PASS',
-    // 'TWILIO_ACCOUNT_SID',
-    // 'TWILIO_AUTH_TOKEN',
-    // 'TWILIO_PHONE_NUMBER',
-    // 'TWILIO_MESSAGING_SERVICE_SID'
+    'TWILIO_ACCOUNT_SID',
+    'TWILIO_AUTH_TOKEN',
+    'TWILIO_PHONE_NUMBER',
+    'TWILIO_MESSAGING_SERVICE_SID'
   ];
 
   const missing = requiredEnvVars.filter(envVar => !process.env[envVar]);

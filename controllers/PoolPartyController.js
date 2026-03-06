@@ -1,6 +1,8 @@
 import mongoose from "mongoose";
 import PoolParty from "../models/poolParty.js";
 import PoolPartyBooking from "../models/PoolPartyBooking.js";
+import Location from "../models/Location.js";
+import Offer from "../models/Offer.js";
 
 export const createPoolParty = async (req, res) => {
   try {
@@ -96,7 +98,36 @@ export const updatePoolParty = async (req, res) => {
 
 export const getPoolPartyByLocationId = async (req, res) => {
   try {
-    const poolParty = await PoolParty.findOne({ locationId: req.params.locationId });
+    const { locationId } = req.params;
+    
+    // ========== FIX START: Get location first ==========
+    let location;
+    if (mongoose.Types.ObjectId.isValid(locationId)) {
+      location = await Location.findById(locationId);
+    } else {
+      return res.status(400).json({ 
+        success: false,
+        error: "Invalid location ID format" 
+      });
+    }
+    
+    if (!location) {
+      return res.status(404).json({ 
+        success: false,
+        error: "Location not found" 
+      });
+    }
+    
+    if (!location.poolPartyConfig?.hasPoolParty || !location.poolPartyConfig?.sharedPoolPartyId) {
+      return res.status(404).json({ 
+        success: false,
+        error: "No shared pool party configured for this location" 
+      });
+    }
+    
+    const poolParty = await PoolParty.findById(location.poolPartyConfig.sharedPoolPartyId);
+    // ========== FIX END ==========
+    
     if (!poolParty) return res.status(404).json({ error: "Pool party not found" });
     res.json(poolParty);
   } catch (err) {
@@ -140,54 +171,110 @@ export const getPoolPartyById = async (req, res) => {
 
 export const deletePoolParty = async (req, res) => {
   try {
-    const poolParty = await PoolParty.findOneAndDelete({ locationId: req.params.locationId });
+    const { id } = req.params;
+
+    // Validate ID format (optional but recommended)
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({
+        success: false,
+        error: "Invalid pool party ID format"
+      });
+    }
+
+    // Find and delete the pool party by its own _id
+    const poolParty = await PoolParty.findByIdAndDelete(id);
+
     if (!poolParty) {
       return res.status(404).json({
         success: false,
-        error: "Pool party not found",
+        error: "Pool party not found"
       });
     }
+
+    // If it's a shared pool, remove references from all linked locations
+    if (poolParty.type === 'shared' && poolParty.sharedLocations?.length > 0) {
+      await Location.updateMany(
+        { _id: { $in: poolParty.sharedLocations } },
+        {
+          $set: {
+            'poolPartyConfig.hasPoolParty': false,
+            'poolPartyConfig.sharedPoolPartyId': null
+          }
+        }
+      );
+    }
+    // If it's a private pool, clear the reference from its single location
+    else if (poolParty.type === 'private' && poolParty.locationId) {
+      await Location.findByIdAndUpdate(poolParty.locationId, {
+        $set: {
+          'poolPartyConfig.hasPoolParty': false,
+          'poolPartyConfig.privatePoolPartyId': null
+        }
+      });
+    }
+
+    // Optionally delete all associated bookings
+    await PoolPartyBooking.deleteMany({ poolPartyId: poolParty._id });
+
     res.json({
       success: true,
-      message: "Pool party deleted successfully",
+      message: "Pool party deleted successfully"
     });
   } catch (err) {
+    console.error("Delete pool party error:", err);
     res.status(500).json({ error: err.message });
   }
 };
 
 export const checkPoolPartyAvailability = async (req, res) => {
   try {
-    const { locationId } = req.params; // from params, not query
+    const { locationId } = req.params;
     const { date, session, guests } = req.query;
     
     console.log('Check Availability - Location ID:', locationId);
     console.log('Check Availability - Query:', req.query);
     
-    if (!locationId) {
+    if (!locationId || locationId === 'undefined') {
       return res.status(400).json({ 
         success: false,
         error: "Location ID is required" 
       });
     }
     
-    // Check both as ObjectId and as string
-    let poolParty;
+    // ========== FIX START: Get location first ==========
+    let location;
     if (mongoose.Types.ObjectId.isValid(locationId)) {
-      poolParty = await PoolParty.findOne({ 
-        locationId: new mongoose.Types.ObjectId(locationId) 
-      });
+      location = await Location.findById(locationId);
     } else {
-      // Try as string if not valid ObjectId
-      poolParty = await PoolParty.findOne({ locationId: locationId });
+      return res.status(400).json({ 
+        success: false,
+        error: "Invalid location ID format" 
+      });
     }
+    
+    if (!location) {
+      return res.status(404).json({ 
+        success: false,
+        error: "Location not found" 
+      });
+    }
+    
+    if (!location.poolPartyConfig?.hasPoolParty || !location.poolPartyConfig?.sharedPoolPartyId) {
+      return res.status(404).json({ 
+        success: false,
+        error: "No shared pool party configured for this location" 
+      });
+    }
+    
+    const poolParty = await PoolParty.findById(location.poolPartyConfig.sharedPoolPartyId);
     
     if (!poolParty) {
       return res.status(404).json({ 
         success: false,
-        error: "Pool party not found for this location" 
+        error: "Pool party not found" 
       });
     }
+    // ========== FIX END ==========
     
     if (!date || !session) {
       return res.status(400).json({ 
@@ -199,9 +286,12 @@ export const checkPoolPartyAvailability = async (req, res) => {
     const bookingDate = new Date(date);
     
     // Use the async method from the updated PoolParty model
-    const isAvailable = await poolParty.isSessionAvailable(bookingDate, session, parseInt(guests || 0));
+    const isAvailable = await poolParty.isSessionAvailable(bookingDate, session, totalGuests);
     const availableCapacity = await poolParty.getAvailableCapacity(bookingDate, session);
     const sessionConfig = poolParty.timings.find(t => t.session === session);
+    
+    // ✅ ADD: Get food package availability
+    const foodAvailability = await poolParty.getFoodPackageAvailability(bookingDate, session);
     
     res.json({
       success: true,
@@ -210,7 +300,10 @@ export const checkPoolPartyAvailability = async (req, res) => {
       totalCapacity: sessionConfig ? sessionConfig.capacity : 0,
       booked: sessionConfig ? sessionConfig.capacity - availableCapacity : 0,
       pricing: sessionConfig ? sessionConfig.pricing : null,
-      locationName: poolParty.locationName
+      locationName: poolParty.locationName,
+      // ✅ ADD: Food package info
+      foodPackages: poolParty.selectedFoodPackages || [],
+      foodPackageAvailability: foodAvailability
     });
   } catch (err) {
     console.error('Check availability error:', err);
@@ -229,48 +322,67 @@ export const getAllSessionsAvailability = async (req, res) => {
     console.log('Get All Sessions - Location ID:', locationId);
     console.log('Get All Sessions - Date:', date);
     
-    if (!locationId) {
-      return res.status(400).json({ 
-        success: false,
-        error: "Location ID is required" 
-      });
+    if (!locationId || locationId === 'undefined') {
+      return res.status(400).json({ success: false, error: "Location ID is required" });
     }
     
     if (!date) {
-      return res.status(400).json({ 
-        success: false,
-        error: "Date is required" 
-      });
+      return res.status(400).json({ success: false, error: "Date is required" });
     }
     
-    let poolParty;
-    if (mongoose.Types.ObjectId.isValid(locationId)) {
-      poolParty = await PoolParty.findOne({ 
-        locationId: new mongoose.Types.ObjectId(locationId) 
-      });
-    } else {
-      poolParty = await PoolParty.findOne({ locationId: locationId });
+    // Validate locationId
+    if (!mongoose.Types.ObjectId.isValid(locationId)) {
+      return res.status(400).json({ success: false, error: "Invalid location ID format" });
     }
     
+    // Fetch the location
+    const location = await Location.findById(locationId);
+    if (!location) {
+      return res.status(404).json({ success: false, error: "Location not found" });
+    }
+    
+    // Check if pool party is configured
+    if (!location.poolPartyConfig?.hasPoolParty) {
+      return res.status(404).json({ success: false, error: "No pool party configured for this location" });
+    }
+    
+    // Get the correct pool party ID based on type
+    let poolPartyId = null;
+    if (location.poolPartyConfig.poolPartyType === 'shared') {
+      poolPartyId = location.poolPartyConfig.sharedPoolPartyId;
+    } else if (location.poolPartyConfig.poolPartyType === 'private') {
+      poolPartyId = location.poolPartyConfig.privatePoolPartyId;
+    }
+    
+    if (!poolPartyId) {
+      return res.status(404).json({ success: false, error: "Pool party ID not found in location config" });
+    }
+    
+    // Fetch the pool party
+    const poolParty = await PoolParty.findById(poolPartyId);
     if (!poolParty) {
-      return res.status(404).json({ 
-        success: false,
-        error: "Pool party not found for this location" 
-      });
+      return res.status(404).json({ success: false, error: "Pool party not found" });
     }
     
-    const bookingDate = new Date(date);
+    // Optional: verify the pool party is linked to this location (safety check)
+    if (poolParty.type === 'shared') {
+      if (!poolParty.sharedLocations.some(id => id.toString() === locationId)) {
+        return res.status(400).json({ success: false, error: "Pool party not linked to this location" });
+      }
+    } else {
+      if (poolParty.locationId?.toString() !== locationId) {
+        return res.status(400).json({ success: false, error: "Pool party not linked to this location" });
+      }
+    }
     
+    // Parse the date
+    const bookingDate = new Date(date);
     if (isNaN(bookingDate.getTime())) {
-      return res.status(400).json({ 
-        success: false,
-        error: "Invalid date format" 
-      });
+      return res.status(400).json({ success: false, error: "Invalid date format" });
     }
     
     const startOfDay = new Date(bookingDate);
     startOfDay.setHours(0, 0, 0, 0);
-    
     const endOfDay = new Date(bookingDate);
     endOfDay.setHours(23, 59, 59, 999);
     
@@ -283,10 +395,9 @@ export const getAllSessionsAvailability = async (req, res) => {
       }
     });
     
-    console.log('=== AVAILABILITY CALCULATION DEBUG ===');
-    console.log('Checking bookings for date:', bookingDate.toISOString().split('T')[0]);
-    console.log('Total bookings from PoolPartyBooking collection:', bookingsOnDate.length);
-    console.log('All bookings:', JSON.stringify(bookingsOnDate, null, 2));
+    console.log('=== AVAILABILITY CALCULATION ===');
+    console.log('Total bookings:', bookingsOnDate.length);
+    console.log('From location bookings:', bookingsOnDate.filter(b => b.isIncludedInLocationBooking).length);
     
     // Calculate availability for each session
     const sessionsAvailability = await Promise.all(
@@ -323,13 +434,9 @@ export const getAllSessionsAvailability = async (req, res) => {
     
   } catch (err) {
     console.error('Get all sessions availability error:', err);
-    res.status(500).json({ 
-      success: false,
-      error: err.message 
-    });
+    res.status(500).json({ success: false, error: err.message });
   }
 };
-
 // Add payment status update function
 export const updatePoolPartyPaymentStatus = async (req, res) => {
   try {
@@ -422,17 +529,28 @@ export const createPoolPartyBooking = async (req, res) => {
       guestName,
       email,
       phone,
-      address, // NEW: Added address
+      address,
       bookingDate,
       session,
       adults,
       kids,
-      paymentType = 'full', // NEW: Added payment type
-      amountPaid = 0, // NEW: Added amount paid
-      remainingAmount = 0 // NEW: Added remaining amount
+      paymentType = 'full',
+      amountPaid = 0,
+      remainingAmount = 0,
+      withFood = false,
+      foodPackage, // This should be an object now, not just a string
+      pricing = {}
     } = req.body;
     
-    // Check availability
+    console.log('Creating pool party booking with data:', {
+      poolPartyId,
+      locationId,
+      withFood,
+      foodPackage,
+      pricing
+    });
+    
+    // Fetch pool party
     const poolParty = await PoolParty.findById(poolPartyId);
     if (!poolParty) {
       return res.status(404).json({ 
@@ -440,71 +558,147 @@ export const createPoolPartyBooking = async (req, res) => {
         error: "Pool party not found" 
       });
     }
-    
-    const totalGuests = parseInt(adults) + parseInt(kids);
-    const isAvailable = await poolParty.isSessionAvailable(new Date(bookingDate), session, totalGuests);
-    
-    if (!isAvailable) {
-      return res.status(400).json({
-        success: false,
-        error: "Not enough capacity for this session"
-      });
+
+    // ========== CHECK FOR ACTIVE OFFER ==========
+    let activeOffer = null;
+    const date = new Date(bookingDate);
+    if (!isNaN(date.getTime())) {
+      const activeOffers = await Offer.find({
+        offerType: "poolparty",
+        selectedPoolParties: poolPartyId,
+        startDate: { $lte: date },
+        endDate: { $gte: date },
+        isActive: true
+      }).sort({ createdAt: -1 });
+
+      if (activeOffers.length > 0) {
+        activeOffer = activeOffers[0];
+        console.log(`✅ Active offer found for pool party ${poolPartyId} on ${bookingDate}: ${activeOffer.name}`);
+      }
     }
-    
-    // Get session pricing
-    const sessionConfig = poolParty.timings.find(t => t.session === session);
+
+    // Determine session pricing
+    let sessionConfig = null;
+    let basePricing = null;
+
+    if (activeOffer && activeOffer.poolPartyPricing?.sessions) {
+      // Find session from offer
+      const offerSession = activeOffer.poolPartyPricing.sessions.find(
+        s => s.session === session && s.poolPartyId?.toString() === poolPartyId
+      );
+      if (offerSession) {
+        sessionConfig = {
+          session: offerSession.session,
+          startTime: offerSession.startTime,
+          endTime: offerSession.endTime,
+          capacity: offerSession.capacity,
+          pricing: {
+            perAdult: offerSession.perAdult,
+            perKid: offerSession.perKid
+          }
+        };
+      }
+      basePricing = activeOffer.poolPartyPricing;
+    }
+
+    // Fallback to original if no offer or session not found
     if (!sessionConfig) {
-      return res.status(400).json({
-        success: false,
-        error: "Invalid session selected"
-      });
+      sessionConfig = poolParty.timings.find(t => t.session === session);
+      if (!sessionConfig) {
+        return res.status(400).json({
+          success: false,
+          error: "Invalid session selected"
+        });
+      }
+    }
+
+    // Determine available food packages (from offer or original)
+    let availableFoodPackages = [];
+    if (activeOffer && activeOffer.poolPartyPricing?.foodPackages) {
+      availableFoodPackages = activeOffer.poolPartyPricing.foodPackages.filter(
+        fp => fp.poolPartyId?.toString() === poolPartyId
+      );
+    } else {
+      availableFoodPackages = poolParty.selectedFoodPackages || [];
+    }
+
+    // Calculate base price using sessionConfig
+    const basePrice = (sessionConfig.pricing.perAdult * parseInt(adults)) + 
+                      (sessionConfig.pricing.perKid * parseInt(kids));
+    
+    // Calculate food package price if included
+    let foodPackagePrice = 0;
+    let foodPackageData = null;
+    
+    if (withFood && foodPackage) {
+      // Find the selected food package from available ones
+      const selectedFoodPkg = availableFoodPackages.find(
+        pkg => pkg.foodPackageId === foodPackage.foodPackageId || 
+               pkg._id?.toString() === foodPackage.foodPackageId
+      );
+      
+      if (selectedFoodPkg) {
+        foodPackagePrice = (selectedFoodPkg.pricePerAdult * parseInt(adults)) +
+                          (selectedFoodPkg.pricePerKid * parseInt(kids));
+        
+        foodPackageData = {
+          foodPackageId: selectedFoodPkg.foodPackageId || selectedFoodPkg._id,
+          name: selectedFoodPkg.name,
+          pricePerAdult: selectedFoodPkg.pricePerAdult,
+          pricePerKid: selectedFoodPkg.pricePerKid
+        };
+      } else {
+        console.warn('Selected food package not found:', foodPackage);
+      }
     }
     
-    const totalAmount = (sessionConfig.pricing.perAdult * parseInt(adults)) + 
-                       (sessionConfig.pricing.perKid * parseInt(kids));
+    const totalPrice = basePrice + foodPackagePrice;
     
-    // Determine payment status based on amounts
-    // let paymentStatus = 'pending';
-    // if (paymentType === 'full' && amountPaid >= totalAmount) {
-    //   paymentStatus = 'paid';
-    // } else if (amountPaid > 0 && amountPaid < totalAmount) {
-    //   paymentStatus = 'partially_paid';
-    // }
-    
-    // Create booking with payment details
+    // Create booking with enhanced data
     const booking = new PoolPartyBooking({
       poolPartyId,
       locationId,
       guestName,
       email,
       phone,
-      address: address || '', // NEW: Added address
+      address: address || '',
       bookingDate: new Date(bookingDate),
       session,
       adults: parseInt(adults),
       kids: parseInt(kids),
-      totalGuests,
+      totalGuests: parseInt(adults) + parseInt(kids),
       pricing: {
         pricePerAdult: sessionConfig.pricing.perAdult,
         pricePerKid: sessionConfig.pricing.perKid,
-        totalPrice: totalAmount
+        totalPrice: totalPrice,
+        foodPackagePrice: foodPackagePrice
       },
       paymentType,
       amountPaid: parseFloat(amountPaid),
       remainingAmount: parseFloat(remainingAmount),
       paymentStatus: 'pending',
+      withFood,
+      foodPackage: foodPackageData,
+      isAutoCreatedFromLocation: req.body.isAutoCreatedFromLocation || false
+      // Optionally store offer ID if you add field to model
+      // offer: activeOffer?._id
     });
     
     await booking.save();
     
+    // Populate the booking with pool party details
+    const populatedBooking = await PoolPartyBooking.findById(booking._id)
+      .populate('poolPartyId', 'name locationName selectedFoodPackages')
+      .populate('locationId', 'name address');
+    
     res.status(201).json({
       success: true,
       message: "Pool party booking created successfully",
-      booking
+      booking: populatedBooking
     });
     
   } catch (err) {
-    console.error('Create booking error:', err);
+    console.error('Create pool party booking error:', err);
     res.status(400).json({ error: err.message });
   }
 };
@@ -612,7 +806,7 @@ export const updatePoolPartyBooking = async (req, res) => {
   try {
     const { id } = req.params;
     const updateData = req.body;
-    
+
     // Validate booking ID
     if (!mongoose.Types.ObjectId.isValid(id)) {
       return res.status(400).json({ 
@@ -620,103 +814,134 @@ export const updatePoolPartyBooking = async (req, res) => {
         error: "Invalid booking ID format" 
       });
     }
-    
-    // Find the booking
-    const booking = await PoolPartyBooking.findById(id);
+
+    // Find the existing booking
+    const booking = await PoolPartyBooking.findById(id).populate('poolPartyId');
     if (!booking) {
       return res.status(404).json({ 
         success: false,
         error: "Booking not found" 
       });
     }
-    
-    // If changing date/session/guests, check availability
-    if (updateData.bookingDate || updateData.session || updateData.adults || updateData.kids) {
-      const poolParty = await PoolParty.findById(booking.poolPartyId);
-      if (!poolParty) {
-        return res.status(404).json({ 
+
+    // If this booking is part of a location booking, restrict editing of critical fields
+    if (booking.isIncludedInLocationBooking) {
+      // Allow only guest info updates, not date/session/guest count changes
+      const allowedFields = ['guestName', 'email', 'phone', 'address', 'paymentStatus', 'status'];
+      const restrictedFields = Object.keys(updateData).filter(
+        field => !allowedFields.includes(field)
+      );
+      if (restrictedFields.length > 0) {
+        return res.status(403).json({
           success: false,
-          error: "Pool party not found" 
+          error: `Cannot change ${restrictedFields.join(', ')} for location‑linked pool party bookings.`
         });
       }
-      
-      const bookingDate = new Date(updateData.bookingDate || booking.bookingDate);
-      const session = updateData.session || booking.session;
-      const adults = parseInt(updateData.adults || booking.adults);
-      const kids = parseInt(updateData.kids || booking.kids);
-      const totalGuests = adults + kids;
-      
-      // Check availability using the PoolParty model's async method
-      const availableCapacity = await poolParty.getAvailableCapacity(bookingDate, session);
-      
-      // For updates, we need to check capacity excluding current booking
-      const startOfDay = new Date(bookingDate);
-      startOfDay.setHours(0, 0, 0, 0);
-      
-      const endOfDay = new Date(bookingDate);
-      endOfDay.setHours(23, 59, 59, 999);
-      
-      // Get all other bookings for the same date and session
-      const otherBookings = await PoolPartyBooking.find({
-        poolPartyId: booking.poolPartyId,
-        bookingDate: {
-          $gte: startOfDay,
-          $lte: endOfDay
-        },
-        session: session,
-        _id: { $ne: booking._id } // Exclude current booking
+      // Proceed with update (skip capacity checks)
+      const updatedBooking = await PoolPartyBooking.findByIdAndUpdate(
+        id,
+        updateData,
+        { new: true, runValidators: true }
+      ).populate('poolPartyId', 'locationName timings');
+      return res.json({
+        success: true,
+        message: "Booking updated successfully",
+        booking: updatedBooking
       });
-      
-      const totalBookedByOthers = otherBookings.reduce((sum, b) => sum + b.adults + b.kids, 0);
-      const sessionConfig = poolParty.timings.find(t => t.session === session);
-      
+    }
+
+    // -----------------------------------------------------------------
+    // For standalone bookings, handle capacity if any relevant field changes
+    // -----------------------------------------------------------------
+    const poolParty = booking.poolPartyId;
+    if (!poolParty) {
+      return res.status(404).json({ 
+        success: false,
+        error: "Pool party not found" 
+      });
+    }
+
+    // Determine if capacity‑affecting fields are being changed
+    const capacityFields = ['bookingDate', 'session', 'adults', 'kids'];
+    const capacityChanged = capacityFields.some(field => updateData[field] !== undefined);
+
+    if (capacityChanged) {
+      // Use new values or fallback to existing ones
+      const newDate = updateData.bookingDate ? new Date(updateData.bookingDate) : booking.bookingDate;
+      const newSession = updateData.session || booking.session;
+      const newAdults = updateData.adults !== undefined ? parseInt(updateData.adults) : booking.adults;
+      const newKids = updateData.kids !== undefined ? parseInt(updateData.kids) : booking.kids;
+      const newTotalGuests = newAdults + newKids;
+
+      // Get the session configuration
+      const sessionConfig = poolParty.timings.find(t => t.session === newSession);
       if (!sessionConfig) {
         return res.status(400).json({
           success: false,
           error: "Invalid session selected"
         });
       }
-      
-      const capacityAvailableForUpdate = Math.max(0, sessionConfig.capacity - totalBookedByOthers);
-      
-      if (capacityAvailableForUpdate < totalGuests) {
-        return res.status(400).json({
+
+      // Calculate available capacity excluding the current booking
+      const startOfDay = new Date(newDate);
+      startOfDay.setHours(0, 0, 0, 0);
+      const endOfDay = new Date(newDate);
+      endOfDay.setHours(23, 59, 59, 999);
+
+      // Get all other bookings for same date and session (excluding this one)
+      const otherBookings = await PoolPartyBooking.find({
+        poolPartyId: poolParty._id,
+        bookingDate: { $gte: startOfDay, $lte: endOfDay },
+        session: newSession,
+        _id: { $ne: booking._id }
+      });
+
+      const totalBookedByOthers = otherBookings.reduce((sum, b) => sum + b.adults + b.kids, 0);
+      const availableForUpdate = sessionConfig.capacity - totalBookedByOthers;
+
+      if (availableForUpdate < newTotalGuests) {
+        return res.status(409).json({
           success: false,
-          error: "Not enough capacity for this session"
+          error: `Not enough capacity. Only ${availableForUpdate} spots available for this session.`
         });
       }
-      
-      // Update totalGuests in updateData
-      updateData.totalGuests = totalGuests;
-      
-      // Calculate new pricing if guests changed
-      if (updateData.adults || updateData.kids) {
+
+      // Recalculate pricing if guest counts or session changed
+      if (updateData.adults !== undefined || updateData.kids !== undefined || updateData.session !== undefined) {
         const sessionPricing = sessionConfig.pricing;
-        if (sessionPricing) {
-          updateData.pricing = {
-            perAdult: sessionPricing.perAdult,
-            perKid: sessionPricing.perKid,
-            totalAmount: (sessionPricing.perAdult * adults) + (sessionPricing.perKid * kids)
-          };
+        const totalPrice = (sessionPricing.perAdult * newAdults) + (sessionPricing.perKid * newKids);
+        
+        // Update pricing in updateData
+        updateData.pricing = {
+          pricePerAdult: sessionPricing.perAdult,
+          pricePerKid: sessionPricing.perKid,
+          totalPrice: totalPrice
+        };
+        updateData.totalGuests = newTotalGuests;
+
+        // Adjust payment amounts if needed (optional)
+        // For simplicity, we keep existing amountPaid and recalculate remainingAmount
+        if (updateData.amountPaid === undefined) {
+          // keep existing amountPaid, but ensure remainingAmount is correct
+          const existingPaid = booking.amountPaid || 0;
+          updateData.remainingAmount = Math.max(0, totalPrice - existingPaid);
         }
       }
     }
-    
-    // Update the booking
+
+    // Apply the update
     const updatedBooking = await PoolPartyBooking.findByIdAndUpdate(
       id,
       updateData,
       { new: true, runValidators: true }
     ).populate('poolPartyId', 'locationName timings');
-    
-    // NO LONGER update the bookings array in PoolParty model
-    
+
     res.json({
       success: true,
       message: "Booking updated successfully",
       booking: updatedBooking
     });
-    
+
   } catch (err) {
     console.error('Update pool party booking error:', err);
     res.status(400).json({ error: err.message });
@@ -846,5 +1071,247 @@ export const getPoolPartys = async (req, res) => {
   } catch (err) {
     console.error('Get pool parties error:', err);
     res.status(500).json({ error: err.message });
+  }
+};
+
+export const getAllPoolParties = async (req, res) => {
+  try {
+    const { 
+      type,
+      page = 1,
+      limit = 10,
+      search
+    } = req.query;
+    
+    const query = {};
+    
+    if (type) query.type = type;
+    if (search) {
+      query.$or = [
+        { name: { $regex: search, $options: 'i' } },
+        { locationName: { $regex: search, $options: 'i' } }
+      ];
+    }
+    
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+    
+    const poolParties = await PoolParty.find(query)
+      .populate('sharedLocations', 'name address')
+      .populate('locationId', 'name address')
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(parseInt(limit));
+    
+    const total = await PoolParty.countDocuments(query);
+    
+    const poolPartiesWithStats = await Promise.all(
+      poolParties.map(async (poolParty) => {
+        const bookingCount = await PoolPartyBooking.countDocuments({ 
+          poolPartyId: poolParty._id 
+        });
+        
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        const tomorrow = new Date(today);
+        tomorrow.setDate(tomorrow.getDate() + 1);
+        
+        const todayBookingsCount = await PoolPartyBooking.countDocuments({
+          poolPartyId: poolParty._id,
+          bookingDate: {
+            $gte: today,
+            $lt: tomorrow
+          }
+        });
+        
+        let linkedLocationsCount = 0;
+        if (poolParty.type === 'shared') {
+          linkedLocationsCount = poolParty.sharedLocations?.length || 0;
+        } else {
+          linkedLocationsCount = poolParty.locationId ? 1 : 0;
+        }
+        
+        return {
+          ...poolParty.toObject(),
+          stats: {
+            totalBookings: bookingCount,
+            bookedToday: todayBookingsCount,
+            sessionsCount: poolParty.timings.length,
+            linkedLocationsCount
+          }
+        };
+      })
+    );
+    
+    res.json({
+      success: true,
+      poolParties: poolPartiesWithStats,
+      pagination: {
+        page: parseInt(page),
+        limit: parseInt(limit),
+        total,
+        pages: Math.ceil(total / parseInt(limit))
+      }
+    });
+    
+  } catch (err) {
+    console.error('Get all pool parties error:', err);
+    res.status(500).json({ error: err.message });
+  }
+};
+
+// Create shared pool party
+export const createSharedPoolParty = async (req, res) => {
+  try {
+    const {
+      name,
+      description,
+      locationName,
+      timings,
+      sharedLocations = [],
+      locationFoodPackagePrices // Add this parameter
+    } = req.body;
+    
+    // Validate shared locations
+    if (sharedLocations.length > 0) {
+      const locations = await Location.find({ _id: { $in: sharedLocations } });
+      if (locations.length !== sharedLocations.length) {
+        return res.status(400).json({ 
+          success: false,
+          error: "One or more shared locations not found" 
+        });
+      }
+      
+      // Get food package prices from first location if not provided
+      let foodPackage1Price = 0;
+      let foodPackage2Price = 0;
+      
+      if (locationFoodPackagePrices) {
+        foodPackage1Price = locationFoodPackagePrices.foodPackage1 || 0;
+        foodPackage2Price = locationFoodPackagePrices.foodPackage2 || 0;
+      } else if (locations.length > 0) {
+        // Use pricing from first location
+        const firstLocation = locations[0];
+        foodPackage1Price = firstLocation.pricing?.foodPackage1?.price || 0;
+        foodPackage2Price = firstLocation.pricing?.foodPackage2?.price || 0;
+      }
+      
+      // Process timings with food package pricing
+      const processedTimings = (timings || []).map(timing => ({
+        ...timing,
+        pricing: {
+          ...timing.pricing,
+          foodPackage1: {
+            name: "Breakfast, Lunch, Hightea",
+            pricePerAdult: foodPackage1Price,
+            pricePerKid: Math.round(foodPackage1Price / 2)
+          },
+          foodPackage2: {
+            name: "Breakfast, Lunch, Hightea, Dinner",
+            pricePerAdult: foodPackage2Price,
+            pricePerKid: Math.round(foodPackage2Price / 2)
+          }
+        }
+      }));
+      
+      const poolParty = new PoolParty({
+        name,
+        description,
+        type: 'shared',
+        sharedLocations,
+        locationName,
+        timings: processedTimings, // Use processed timings
+        isActive: true
+      });
+      
+      await poolParty.save();
+      
+      // Update each location's pool party config
+      for (const locationId of sharedLocations) {
+        await Location.findByIdAndUpdate(locationId, {
+          'poolPartyConfig.hasPoolParty': true,
+          'poolPartyConfig.poolPartyType': 'shared',
+          'poolPartyConfig.sharedPoolPartyId': poolParty._id,
+          'poolPartyConfig.privatePoolPartyId': null
+        });
+      }
+      
+      res.status(201).json({
+        success: true,
+        message: "Shared pool party created successfully",
+        poolParty
+      });
+    }
+  } catch (err) {
+    console.error('Create shared pool party error:', err);
+    res.status(400).json({ error: err.message });
+  }
+};
+
+// Update shared pool party
+export const updateSharedPoolParty = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { name, description, timings, sharedLocations } = req.body;
+    
+    const poolParty = await PoolParty.findById(id);
+    if (!poolParty || poolParty.type !== 'shared') {
+      return res.status(404).json({ 
+        error: "Shared pool party not found" 
+      });
+    }
+    
+    // Get old shared locations to compare
+    const oldSharedLocations = poolParty.sharedLocations.map(id => id.toString());
+    const newSharedLocations = sharedLocations || [];
+    
+    // Update pool party
+    poolParty.name = name || poolParty.name;
+    poolParty.description = description || poolParty.description;
+    if (timings) poolParty.timings = timings;
+    
+    // Update shared locations
+    if (sharedLocations) {
+      poolParty.sharedLocations = newSharedLocations;
+      
+      // Update locations that were removed
+      const removedLocations = oldSharedLocations.filter(id => 
+        !newSharedLocations.includes(id)
+      );
+      
+      for (const locationId of removedLocations) {
+        await Location.findByIdAndUpdate(locationId, {
+          'poolPartyConfig.hasPoolParty': false,
+          'poolPartyConfig.poolPartyType': 'none',
+          'poolPartyConfig.sharedPoolPartyId': null
+        });
+      }
+      
+      // Update locations that were added
+      const addedLocations = newSharedLocations.filter(id => 
+        !oldSharedLocations.includes(id)
+      );
+      
+      for (const locationId of addedLocations) {
+        await Location.findByIdAndUpdate(locationId, {
+          'poolPartyConfig.hasPoolParty': true,
+          'poolPartyConfig.poolPartyType': 'shared',
+          'poolPartyConfig.sharedPoolPartyId': poolParty._id,
+          'poolPartyConfig.privatePoolPartyId': null
+        });
+      }
+    }
+    
+    poolParty.updatedAt = new Date();
+    await poolParty.save();
+    
+    res.json({
+      success: true,
+      message: "Shared pool party updated successfully",
+      poolParty
+    });
+    
+  } catch (err) {
+    console.error('Update shared pool party error:', err);
+    res.status(400).json({ error: err.message });
   }
 };

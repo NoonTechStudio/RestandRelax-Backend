@@ -15,7 +15,10 @@ import {
   getPoolPartyBookings,
   updatePoolPartyBooking,
   deletePoolPartyBooking,
-  getPoolPartys
+  getPoolPartys,
+  getAllPoolParties,
+  createSharedPoolParty,
+  updateSharedPoolParty
 } from "../controllers/PoolPartyController.js";
 import { generatePoolPartyBookingPDF } from '../services/pdfService.js';
 import PoolPartyBooking from "../models/PoolPartyBooking.js";
@@ -26,7 +29,12 @@ router.post("/", createPoolParty);
 router.get("/", getPoolPartys);
 router.put("/:id", updatePoolParty);
 router.get("/:id", getPoolPartyById); // This should be BEFORE location routes
-router.delete("/:locationId", deletePoolParty);
+router.delete("/:id", deletePoolParty);
+
+// New routes for shared pool parties
+router.get("/admin/all", getAllPoolParties); // Get all pool parties (admin)
+router.post("/shared", createSharedPoolParty); // Create shared pool party
+router.put("/shared/:id", updateSharedPoolParty); // Update shared pool party
 
 // IMPORTANT: Move these BEFORE the dynamic routes
 // Availability Routes
@@ -39,6 +47,7 @@ router.get("/location/:locationId", getPoolPartyByLocationId);
 // Booking Routes
 router.get("/bookings/all", getPoolPartyBookings); // Changed route
 router.post("/bookings", createPoolPartyBooking);
+
 // Add this route ABOVE the PDF download route and BELOW the other booking routes
 router.get("/bookings/:id", async (req, res) => {
   try {
@@ -75,11 +84,11 @@ router.get("/bookings/:id", async (req, res) => {
     });
   }
 });
+
 router.put("/bookings/:id", updatePoolPartyBooking);
 router.delete("/bookings/:id", deletePoolPartyBooking);
 router.patch('/bookings/:id/payment-status', updatePoolPartyPaymentStatus);
 router.patch('/bookings/:id/mark-paid', markPoolPartyAsPaid);
-
 
 // PDF Download Route
 router.get('/:id/download-pdf', async (req, res) => {

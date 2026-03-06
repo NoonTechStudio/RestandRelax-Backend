@@ -2,6 +2,7 @@
 import Booking from "../models/Booking.js";
 import Location from "../models/Location.js";
 import Review from "../models/Review.js";
+import PoolPartyBooking from "../models/PoolPartyBooking.js";
 
 export const getDashboardStats = async (req, res) => {
   try {
@@ -121,12 +122,53 @@ export const getDashboardStats = async (req, res) => {
 
 export const getRecentActivity = async (req, res) => {
   try {
+    // 1. Fetch location bookings
     const recentBookings = await Booking.find()
       .populate('location', 'name')
       .sort({ createdAt: -1 })
       .limit(10)
-      .select('name phone checkInDate checkOutDate pricing.totalPrice paymentType remainingAmount amountPaid paymentStatus');
+      .select('name phone checkInDate checkOutDate pricing.totalPrice paymentType remainingAmount amountPaid paymentStatus createdAt');
 
+    // 2. Fetch pool party bookings
+    const recentPoolPartyBookings = await PoolPartyBooking.find()
+      .populate('poolPartyId', 'locationName')
+      .populate('locationId', 'name')
+      .sort({ createdAt: -1 })
+      .limit(10)
+      .select('guestName phone bookingDate session pricing.totalPrice paymentType amountPaid remainingAmount paymentStatus createdAt locationId poolPartyId');
+
+    // 3. Map pool party bookings to a shape similar to location bookings
+    const mappedPoolParty = recentPoolPartyBookings.map(pb => ({
+      _id: pb._id,
+      name: pb.guestName,
+      phone: pb.phone,
+      checkInDate: pb.bookingDate,
+      checkOutDate: pb.bookingDate, // same day for pool party
+      session: pb.session,           // include session for display
+      pricing: { totalPrice: pb.pricing.totalPrice },
+      paymentType: pb.paymentType,
+      amountPaid: pb.amountPaid,
+      remainingAmount: pb.remainingAmount,
+      paymentStatus: pb.paymentStatus,
+      createdAt: pb.createdAt,
+      location: pb.locationId 
+        ? { name: pb.locationId.name } 
+        : { name: pb.poolPartyId?.locationName || 'Pool Party' },
+      bookingType: 'poolparty'        // marker to distinguish in frontend
+    }));
+
+    // 4. Map location bookings with type marker
+    const mappedLocation = recentBookings.map(b => ({
+      ...b.toObject(),
+      bookingType: 'location'
+    }));
+
+    // 5. Combine and sort by createdAt, then keep top 10
+    const combined = [...mappedLocation, ...mappedPoolParty]
+      .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
+      .slice(0, 10);
+
+    // 6. Fetch reviews (unchanged)
     const recentReviews = await Review.find()
       .populate('location', 'name')
       .sort({ createdAt: -1 })
@@ -136,7 +178,7 @@ export const getRecentActivity = async (req, res) => {
     res.json({
       success: true,
       recentActivity: {
-        bookings: recentBookings,
+        bookings: combined,
         reviews: recentReviews
       }
     });

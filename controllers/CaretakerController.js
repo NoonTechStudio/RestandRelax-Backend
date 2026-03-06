@@ -242,6 +242,7 @@ export const getCaretakerBookings = async (req, res) => {
           ...(location && location !== 'all' ? { location: location } : {})
         })
           .populate('location', 'name address')
+          .populate('markedPaidBy', 'name email')
           .sort({ createdAt: -1 })
           .skip(skip)
           .limit(limitNum)
@@ -272,6 +273,7 @@ export const getCaretakerBookings = async (req, res) => {
         })
           .populate('poolPartyId', 'locationName timings')
           .populate('locationId', 'name address')
+          .populate('markedPaidBy', 'name email')
           .sort({ createdAt: -1 })
           .skip(skip)
           .limit(limitNum)
@@ -291,7 +293,13 @@ export const getCaretakerBookings = async (req, res) => {
         amountPaid: booking.amountPaid,
         remainingAmount: booking.remainingAmount,
         totalAmount: booking.pricing?.totalPrice
-      }
+      },
+      markedPaidBy: booking.markedPaidBy ? {
+    _id: booking.markedPaidBy._id,
+    name: booking.markedPaidBy.name,
+    email: booking.markedPaidBy.email
+  } : null,
+  markedPaidAt: booking.markedPaidAt
     }));
 
     const formattedPoolPartyBookings = poolPartyBookings.map(booking => ({
@@ -314,7 +322,13 @@ export const getCaretakerBookings = async (req, res) => {
         pricePerAdult: booking.pricing?.perAdult || 0,
         pricePerKid: booking.pricing?.perKid || 0,
         totalPrice: booking.pricing?.totalPrice || booking.pricing?.totalAmount || 0
-      }
+      },
+        markedPaidBy: booking.markedPaidBy ? {
+    _id: booking.markedPaidBy._id,
+    name: booking.markedPaidBy.name,
+    email: booking.markedPaidBy.email
+  } : null,
+  markedPaidAt: booking.markedPaidAt
     }));
 
     // Combine all bookings
@@ -431,7 +445,7 @@ export const getCaretakerBookings = async (req, res) => {
   }
 };
 
-// Update booking payment status (supports both types)
+// controllers/CaretakerController.js
 export const updateBookingPaymentStatus = async (req, res) => {
   try {
     const { id } = req.params;
@@ -451,8 +465,6 @@ export const updateBookingPaymentStatus = async (req, res) => {
         });
       }
 
-      console.log('Current pool party booking status:', booking.paymentStatus);
-
       // Check if current status allows update
       const allowedStatuses = ['partially_paid', 'pending', 'half-paid'];
       if (!allowedStatuses.includes(booking.paymentStatus)) {
@@ -466,6 +478,10 @@ export const updateBookingPaymentStatus = async (req, res) => {
       booking.paymentStatus = 'paid';
       booking.amountPaid = booking.pricing?.totalPrice || booking.pricing?.totalAmount || 0;
       booking.remainingAmount = 0;
+
+      // NEW: Record who marked it paid
+      booking.markedPaidBy = new mongoose.Types.ObjectId(req.caretaker._id);
+      booking.markedPaidAt = new Date();
 
       await booking.save();
 
@@ -481,19 +497,21 @@ export const updateBookingPaymentStatus = async (req, res) => {
         });
       }
 
-      console.log('Current simple booking status:', booking.paymentStatus);
-
       // Check if current status allows update
-      if (booking.paymentStatus !== 'half-paid') {
+      if (booking.paymentStatus !== 'partially_paid') {
         return res.status(400).json({
           success: false,
           error: `Can only update bookings with half-paid status to fully-paid. Current status: ${booking.paymentStatus}`
         });
       }
 
-      booking.paymentStatus = 'full-paid';
+      booking.paymentStatus = 'paid';
       booking.remainingAmount = 0;
       booking.amountPaid = booking.pricing?.totalPrice || 0;
+
+      // NEW: Record who marked it paid
+      booking.markedPaidBy = new mongoose.Types.ObjectId(req.caretaker._id);
+      booking.markedPaidAt = new Date();
 
       await booking.save();
 

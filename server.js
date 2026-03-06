@@ -17,6 +17,8 @@ import dashboardRoutes from "./routes/dashboardRoutes.js";
 import CaretakerRoutes from "./routes/CaretakerRoutes.js";
 import PoolPartyRoutes from "./routes/poolPartyRoutes.js";
 import validateEnvironment from "./config/envValidation.js";
+import termsAndConditionsRoutes from "./routes/termsAndConditionsRoutes.js";
+import OfferRoutes from "./routes/OfferRoutes.js";
 
 // Security middleware
 import {
@@ -168,6 +170,8 @@ app.use("/api/admin", adminRoutes);
 app.use("/api/dashboard", dashboardRoutes);
 app.use("/api/caretaker", CaretakerRoutes);
 app.use('/api/pool-parties', PoolPartyRoutes);
+app.use("/api/terms-and-conditions", termsAndConditionsRoutes);
+app.use("/api/offers", OfferRoutes);
 
 // ===== HEALTH CHECK =====
 app.get('/api/health', (req, res) => {

@@ -9,13 +9,6 @@ if (!MONGO_URI) {
   throw new Error("❌ MONGO_URI is not defined in environment variables");
 }
 
-const maskedUri = MONGO_URI.replace(
-  /\/\/(.*?):(.*?)@/,
-  "//****:****@"
-);
-
-console.log("🧩 MongoDB URI in use:", maskedUri);
-
 // Global cache for Vercel / serverless
 let cached = global.mongoose;
 
@@ -42,7 +35,10 @@ const connectDB = async () => {
       family: 4,
       retryWrites: true,
     }).then((mongoose) => {
+      const conn = mongoose.connection;
       console.log("✅ MongoDB connected");
+      console.log("📦 DB Host:", conn.host);
+      console.log("🗄️ DB Name:", conn.name);
       return mongoose;
     }).catch(err => {
       cached.promise = null;
